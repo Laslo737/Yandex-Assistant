@@ -1,0 +1,236 @@
+Как в этом проекте подключён и используется OpenRouter
+
+1. Общая идея
+- OpenRouter подключён не отдельным SDK, а через официальный пакет openai.
+- То есть клиент создаётся как OpenAI(...), но с подменой baseURL на OpenRouter.
+- За счёт этого можно использовать привычный OpenAI-совместимый API, а фактически запросы идут в OpenRouter.
+
+2. Что ставили
+- npm install openai dotenv
+- Если проект на TypeScript, ещё нужны стандартные ts/dev зависимости, но для самого OpenRouter критично именно наличие openai.
+
+3. Какие переменные окружения использовали
+В .env / secrets задаются такие переменные:
+- LLM_PROVIDER=openrouter
+- OPENROUTER_API_KEY=...
+- OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+- OPENROUTER_MODEL=openai/gpt-5.4-mini
+- OPENROUTER_HTTP_REFERER=http://localhost:3000
+- OPENROUTER_X_TITLE=Your App Name
+
+Смысл:
+- LLM_PROVIDER — флаг, что активен именно OpenRouter.
+- OPENROUTER_API_KEY — ключ OpenRouter.
+- OPENROUTER_BASE_URL — базовый URL OpenRouter.
+- OPENROUTER_MODEL — модель в формате OpenRouter, например provider/model.
+- OPENROUTER_HTTP_REFERER — optional, но лучше передавать.
+- OPENROUTER_X_TITLE — optional заголовок с названием приложения.
+
+4. Как читались env-переменные
+- В проекте был отдельный конфиг env, который один раз вызывает dotenv.config().
+- Из него в код пробрасывались:
+  - provider
+  - openrouterApiKey
+  - openrouterBaseUrl
+  - openrouterModel
+  - openrouterHttpReferer
+  - openrouterXTitle
+- Для base URL и model были дефолты:
+  - https://openrouter.ai/api/v1
+  - openai/gpt-5.4-mini
+
+5. Как создавался клиент OpenRouter
+Использовался такой паттерн:
+
+import OpenAI from 'openai';
+
+const client = new OpenAI({
+  apiKey: process.env.OPENROUTER_API_KEY,
+  baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
+  defaultHeaders: {
+    ...(process.env.OPENROUTER_HTTP_REFERER
+      ? { 'HTTP-Referer': process.env.OPENROUTER_HTTP_REFERER }
+      : {}),
+    ...(process.env.OPENROUTER_X_TITLE
+      ? { 'X-Title': process.env.OPENROUTER_X_TITLE }
+      : {})
+  }
+});
+
+Ключевой момент:
+- именно baseURL указывает на OpenRouter,
+- а дальше используется обычный OpenAI SDK.
+
+6. Как была устроена обёртка над LLM
+- Был отдельный сервис/класс, например OpenRouterAiService.
+- Он инкапсулировал:
+  - создание клиента,
+  - проверку, что провайдер включён,
+  - проверку наличия API key,
+  - единый метод генерации текста.
+- Это удобно, потому что остальной код не знает про детали OpenRouter.
+
+Пример структуры:
+- constructor() => создаёт client
+- isEnabled() => проверяет, что LLM_PROVIDER=openrouter и есть ключ
+- generateText(...) => делает запрос в model
+
+7. Как делался сам запрос
+Использовался chat completions API:
+
+const response = await client.chat.completions.create({
+  model: process.env.OPENROUTER_MODEL || 'openai/gpt-5.4-mini',
+  temperature: 0.2,
+  messages: [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userPrompt }
+  ]
+});
+
+const text = response.choices?.[0]?.message?.content?.trim() || '';
+if (!text) {
+  throw new Error('OpenRouter returned empty response.');
+}
+
+То есть логика очень простая:
+- передаём model,
+- передаём messages,
+- достаём response.choices[0].message.content.
+
+8. Какие проверки были обязательны
+Перед вызовом делались две явные проверки:
+- если LLM_PROVIDER не равен openrouter — бросаем ошибку;
+- если нет OPENROUTER_API_KEY — бросаем ошибку.
+
+Примерно так:
+
+if (process.env.LLM_PROVIDER !== 'openrouter') {
+  throw new Error('OpenRouter provider is not enabled.');
+}
+
+if (!process.env.OPENROUTER_API_KEY) {
+  throw new Error('OPENROUTER_API_KEY is not configured.');
+}
+
+Это полезно, чтобы агент не сделал «тихо неработающую» интеграцию.
+
+9. Как использовалось в приложении
+- OpenRouter не вызывался напрямую из роутов/контроллеров.
+- Сначала создавался один singleton/service экземпляр AI-сервиса при старте приложения.
+- Потом этот сервис внедрялся в другие application services, которым нужен LLM.
+- Уже эти сервисы собирали system prompt + user prompt и вызывали generateText(...).
+
+То есть правильная схема такая:
+- app bootstrap
+  -> create OpenRouterAiService
+  -> inject into domain/application services
+  -> use from business logic
+
+10. Как были разделены обязанности
+Разделение было таким:
+- OpenRouterAiService — только транспорт к LLM;
+- бизнес-сервисы — только подготовка prompt’ов и интерпретация результата.
+
+Это важно: не смешивать в одном месте
+- env,
+- SDK client,
+- prompt engineering,
+- бизнес-логику.
+
+11. Что ещё было поверх вызова
+В местах, где это полезно, поверх AI-сервиса можно делать:
+- кэш по ключу сущности + updatedAt;
+- fallback на rule-based ответ;
+- feature flag через LLM_PROVIDER;
+- короткий temperature (в проекте использовалось 0.2 для стабильности).
+
+12. Минимальный рабочий шаблон, который можно дать агенту
+Скажи агенту сделать так:
+
+Шаги:
+1. Установить пакет openai.
+2. Добавить env-переменные:
+   - LLM_PROVIDER=openrouter
+   - OPENROUTER_API_KEY
+   - OPENROUTER_BASE_URL=https://openrouter.ai/api/v1
+   - OPENROUTER_MODEL=<нужная_модель>
+   - OPENROUTER_HTTP_REFERER=<url приложения>
+   - OPENROUTER_X_TITLE=<название приложения>
+3. Сделать env-config слой с чтением этих переменных.
+4. Создать отдельный OpenRouter service/class, который:
+   - создаёт new OpenAI({ apiKey, baseURL, defaultHeaders })
+   - проверяет provider и api key
+   - экспортирует метод generateText({ system, messages, temperature })
+5. Внутри generateText использовать:
+   - client.chat.completions.create({ model, temperature, messages })
+6. Возвращать response.choices[0].message.content.trim().
+7. Подключать этот сервис через dependency injection / composition root, а не создавать клиент в каждом месте отдельно.
+8. Добавить понятные ошибки, если provider выключен или ключ не задан.
+
+13. Готовый референс-код
+
+import OpenAI from 'openai';
+import dotenv from 'dotenv';
+
+dotenv.config();
+
+export class OpenRouterAiService {
+  private client: OpenAI;
+
+  constructor() {
+    this.client = new OpenAI({
+      apiKey: process.env.OPENROUTER_API_KEY || 'missing-openrouter-key',
+      baseURL: process.env.OPENROUTER_BASE_URL || 'https://openrouter.ai/api/v1',
+      defaultHeaders: {
+        ...(process.env.OPENROUTER_HTTP_REFERER
+          ? { 'HTTP-Referer': process.env.OPENROUTER_HTTP_REFERER }
+          : {}),
+        ...(process.env.OPENROUTER_X_TITLE
+          ? { 'X-Title': process.env.OPENROUTER_X_TITLE }
+          : {})
+      }
+    });
+  }
+
+  isEnabled(): boolean {
+    return process.env.LLM_PROVIDER === 'openrouter' && !!process.env.OPENROUTER_API_KEY;
+  }
+
+  async generateText(input: {
+    system: string;
+    messages: Array<{ role: 'user' | 'assistant'; text: string }>;
+    temperature?: number;
+  }): Promise<string> {
+    if (process.env.LLM_PROVIDER !== 'openrouter') {
+      throw new Error('LLM provider is not openrouter.');
+    }
+
+    if (!process.env.OPENROUTER_API_KEY) {
+      throw new Error('OPENROUTER_API_KEY is not configured.');
+    }
+
+    const response = await this.client.chat.completions.create({
+      model: process.env.OPENROUTER_MODEL || 'openai/gpt-5.4-mini',
+      temperature: input.temperature ?? 0.2,
+      messages: [
+        { role: 'system', content: input.system },
+        ...input.messages.map((m) => ({ role: m.role, content: m.text }))
+      ]
+    });
+
+    const text = response.choices?.[0]?.message?.content?.trim() || '';
+    if (!text) throw new Error('OpenRouter returned empty response.');
+
+    return text;
+  }
+}
+
+14. Важные замечания для другого проекта
+- Не хардкодить API key в коде.
+- Не вызывать OpenRouter напрямую из UI/frontend с секретным ключом.
+- Держать интеграцию на backend/server side.
+- Если проект уже имеет абстракцию LLM provider, лучше встроить OpenRouter как одну из реализаций этой абстракции.
+- Если нужен быстрый старт — достаточно одного сервиса, как в примере выше.
+
+15. Коротко в одной фразе
+В этом проекте OpenRouter подключён через пакет openai с baseURL=https://openrouter.ai/api/v1, с ключом и optional headers из env, обёрнут в отдельный сервис, а бизнес-слой использует только его метод generateText(...) для chat.completions.create(...).

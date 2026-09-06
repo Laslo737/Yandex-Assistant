@@ -1,0 +1,189 @@
+import { IssueExplainResult, IssueExplainService } from '../../explain/application/issue-explain.service';
+import { TrackerSyncService } from '../../tracker/application/tracker-sync.service';
+import { extractTrackerIssueKey } from '../../../shared/utils/tracker-links';
+import {
+  buildIssueContextPack,
+  formatCompactIssueContextPackForLlm,
+  formatIssueContextPackForLlm,
+  IssueHelpContextPack,
+  IssueHelpIntent
+} from './issue-context-pack.builder';
+import { IssueHelpAiService } from './issue-help-ai.service';
+
+export interface IssueHelpResult {
+  request: string;
+  issueKey: string;
+  intent: IssueHelpIntent;
+  contextPack: IssueHelpContextPack;
+  explain: IssueExplainResult;
+  llmContextPreview: string;
+  aiAnswer?: string;
+  aiUsed: boolean;
+}
+
+function parseIntent(text: string): IssueHelpIntent {
+  const normalized = text.toLowerCase();
+
+  if (normalized.includes('саммари') || normalized.includes('summary') || normalized.includes('кратко')) {
+    return 'summary';
+  }
+
+  if (
+    normalized.includes('почему') ||
+    normalized.includes('не двига') ||
+    normalized.includes('застр') ||
+    normalized.includes('встала') ||
+    normalized.includes('встал') ||
+    normalized.includes('blocked')
+  ) {
+    return 'why-stuck';
+  }
+
+  if (
+    normalized.includes('что делать') ||
+    normalized.includes('дальше') ||
+    normalized.includes('next step') ||
+    normalized.includes('следующ')
+  ) {
+    return 'next-step';
+  }
+
+  if (
+    normalized.includes('что произошло') ||
+    normalized.includes('история') ||
+    normalized.includes('произошло') ||
+    normalized.includes('happened')
+  ) {
+    return 'what-happened';
+  }
+
+  return 'generic';
+}
+
+function intentLabel(intent: IssueHelpIntent): string {
+  switch (intent) {
+    case 'summary':
+      return 'сделать саммари по задаче';
+    case 'why-stuck':
+      return 'объяснить, почему задача не двигается';
+    case 'next-step':
+      return 'подсказать, что делать дальше';
+    case 'what-happened':
+      return 'кратко рассказать, что уже произошло по задаче';
+    default:
+      return 'помочь разобраться с задачей';
+  }
+}
+
+export class IssueHelpService {
+  private readonly aiAnswerCache = new Map<string, { expiresAt: number; issueUpdatedAt?: string; value: IssueHelpResult }>();
+
+  constructor(
+    private readonly deps: {
+      trackerSyncService: TrackerSyncService;
+      issueExplainService: IssueExplainService;
+      issueHelpAiService?: IssueHelpAiService;
+    }
+  ) {}
+
+  canHandleMessage(text: string): boolean {
+    const normalized = text.toLowerCase();
+    const hasIssue = Boolean(extractTrackerIssueKey(text));
+    const mentionsIssueHelp = [
+      'саммари',
+      'summary',
+      'почему',
+      'что делать',
+      'что произошло',
+      'помощь с задачей',
+      'анализ задачи',
+      'задача',
+      'issue'
+    ].some((item) => normalized.includes(item));
+
+    return hasIssue && mentionsIssueHelp;
+  }
+
+  getEntryPrompt(): string {
+    return [
+      '🆘 Помощь с задачей',
+      'Опишите, что хотите узнать по задаче, и пришлите ключ или ссылку на нее.',
+      '',
+      'Примеры:',
+      '• Сделай саммари задачи IT-7574',
+      '• Почему задача IT-7574 не двигается?',
+      '• Что делать дальше по задаче https://tracker.yandex.ru/IT-7574'
+    ].join('\n');
+  }
+
+  async handleMessage(text: string): Promise<IssueHelpResult> {
+    const issueKey = extractTrackerIssueKey(text);
+    if (!issueKey) {
+      throw new Error('Не удалось распознать ключ задачи. Пришлите ключ вида IT-7574 или ссылку на задачу Tracker.');
+    }
+
+    const normalizedRequest = text.trim();
+    const intent = parseIntent(text);
+    const [bundle, explain] = await Promise.all([
+      this.deps.trackerSyncService.fetchIssueBundle(issueKey),
+      this.deps.issueExplainService.analyzeIssue(issueKey)
+    ]);
+
+    const cacheKey = `${issueKey}::${intent}`;
+    const cached = this.aiAnswerCache.get(cacheKey);
+    const now = Date.now();
+    if (cached && cached.expiresAt > now && cached.issueUpdatedAt === bundle.issue.updatedAt) {
+      return {
+        ...cached.value,
+        contextPack: {
+          ...cached.value.contextPack,
+          userRequest: normalizedRequest,
+          intent
+        },
+        request: intentLabel(intent)
+      };
+    }
+
+    const contextPack = buildIssueContextPack({
+      issueKey,
+      userRequest: normalizedRequest,
+      intent,
+      bundle,
+      explain
+    });
+
+    let aiAnswer: string | undefined;
+    let aiUsed = false;
+
+    if (this.deps.issueHelpAiService?.isEnabled()) {
+      try {
+        aiAnswer = await this.deps.issueHelpAiService.generateAnswer(contextPack);
+        aiUsed = true;
+      } catch {
+        aiAnswer = undefined;
+        aiUsed = false;
+      }
+    }
+
+    const result: IssueHelpResult = {
+      request: intentLabel(intent),
+      issueKey,
+      intent,
+      contextPack,
+      explain,
+      llmContextPreview: formatCompactIssueContextPackForLlm(contextPack),
+      aiAnswer,
+      aiUsed
+    };
+
+    if (aiUsed) {
+      this.aiAnswerCache.set(cacheKey, {
+        expiresAt: now + 15 * 60 * 1000,
+        issueUpdatedAt: bundle.issue.updatedAt,
+        value: result
+      });
+    }
+
+    return result;
+  }
+}
