@@ -1,6 +1,6 @@
 import { IssueExplainResult, IssueExplainService } from '../../explain/application/issue-explain.service';
 import { TrackerSyncService } from '../../tracker/application/tracker-sync.service';
-import { extractTrackerIssueKey } from '../../../shared/utils/tracker-links';
+import { buildTrackerIssueUrl, extractTrackerIssueKey } from '../../../shared/utils/tracker-links';
 import {
   buildIssueContextPack,
   formatCompactIssueContextPackForLlm,
@@ -112,7 +112,7 @@ export class IssueHelpService {
       'Примеры:',
       '• Сделай саммари задачи IT-7574',
       '• Почему задача IT-7574 не двигается?',
-      '• Что делать дальше по задаче https://tracker.yandex.ru/IT-7574'
+      `• Что делать дальше по задаче ${buildTrackerIssueUrl('IT-7574')}`
     ].join('\n');
   }
 

@@ -74,7 +74,7 @@ class IssueHelpService {
             'Примеры:',
             '• Сделай саммари задачи IT-7574',
             '• Почему задача IT-7574 не двигается?',
-            '• Что делать дальше по задаче https://tracker.yandex.ru/IT-7574'
+            `• Что делать дальше по задаче ${(0, tracker_links_1.buildTrackerIssueUrl)('IT-7574')}`
         ].join('\n');
     }
     async handleMessage(text) {
