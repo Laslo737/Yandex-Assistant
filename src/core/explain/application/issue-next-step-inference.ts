@@ -1,4 +1,4 @@
-import { TrackerComment, TrackerIssue, TrackerUser } from '../../../integrations/yandex-tracker/tracker.types';
+import { TrackerComment, TrackerUser } from '../../../integrations/yandex-tracker/tracker.types';
 import { normalizeTrackerCommentText } from '../../../shared/utils/tracker-comment-text';
 
 export type IssueCommentIntent = 'waiting' | 'asking' | 'reporting' | 'doing' | 'blocked' | 'decision-ready' | 'unknown';
@@ -137,7 +137,7 @@ function classifyIntent(text?: string): IssueCommentIntent {
     return 'asking';
   }
 
-  if (/(в работе|делаю|делаем|занимаюсь|беру в работу|исправляю|готовлю|проверяю|смотрю|разбираюсь|пилю|дорабатываю|перенесу|заведу)/i.test(normalized)) {
+  if (/(в работе|делаю|делаем|занимаюсь|беру в работу|исправляю|готовлю|проверяю|смотрю|разбираюсь|пилю|дорабатываю|перенесу|заведу|сейчас запрошу|запрошу|уточню|узнаю|сообщу|оповещу|вернусь)/i.test(normalized)) {
     return 'doing';
   }
 
@@ -193,7 +193,7 @@ function humanizeBlockingReason(text?: string): string | undefined {
 }
 
 function humanizeRequestedAction(text?: string, intent?: IssueCommentIntent): string | undefined {
-  const sentence = findSentence(text, [/\?/i, /подскаж/i, /уточн/i, /можете/i, /можешь/i, /согласуйте/i, /подтвердите/i, /дайте ос/i, /дай ос/i, /нужен ответ/i, /осталось согласовать/i, /нужно согласовать/i]);
+  const sentence = findSentence(text, [/\?/i, /подскаж/i, /уточн/i, /можете/i, /можешь/i, /согласуйте/i, /подтвердите/i, /дайте ос/i, /дай ос/i, /нужен ответ/i, /осталось согласовать/i, /нужно согласовать/i, /сейчас запрошу/i, /запрошу/i, /уточню/i, /узнаю/i, /сообщу/i, /оповещу/i, /вернусь/i]);
   if (sentence) {
     if (/согласуйте|подтвердите|осталось согласовать|нужно согласовать/i.test(sentence)) {
       return 'дать согласование / подтверждение по текущему варианту';
@@ -210,18 +210,10 @@ function humanizeRequestedAction(text?: string, intent?: IssueCommentIntent): st
   return undefined;
 }
 
-function resolvePendingReplyOwner(issue: TrackerIssue): string | undefined {
-  const pendingReplyFrom = Array.isArray(issue.pendingReplyFrom) ? issue.pendingReplyFrom as Array<{ display?: string; key?: string; id?: string | number }> : [];
-  const first = pendingReplyFrom[0];
-  return first?.display || first?.key || (first?.id !== undefined ? String(first.id) : undefined);
-}
-
 export function inferIssueNextStep(input: {
-  issue: TrackerIssue;
   comments: TrackerComment[];
   assignee?: string;
   lastStatusChangedBy?: string;
-  waitingForReply: boolean;
 }): IssueNextStepInferenceResult {
   const lastComment = findLastMeaningfulComment(input.comments);
   const semanticComment = findLastSemanticComment(input.comments);
@@ -235,20 +227,14 @@ export function inferIssueNextStep(input: {
   const requestedActionHumanized = humanizeRequestedAction(semanticCommentText, lastCommentIntent) || humanizeRequestedAction(waitingQuestion, lastCommentIntent);
   const blockingReasonHumanized = humanizeBlockingReason(semanticCommentText);
   const needsApproval = /согласова|утверд|подтверд|апрув|approve|решени/i.test(String(semanticCommentText || ''));
-  const pendingReplyOwner = resolvePendingReplyOwner(input.issue);
 
-  const authorWaitingForExternalReply = lastCommentIntent === 'waiting' || (lastCommentIntent === 'asking' && !pendingReplyOwner);
+  const authorWaitingForExternalReply = lastCommentIntent === 'waiting' || lastCommentIntent === 'asking';
 
   let nextActionOwner: string | undefined;
   let nextActionReason: string | undefined;
   let authorLikelyOwnsNextStep = false;
 
-  if (pendingReplyOwner) {
-    nextActionOwner = pendingReplyOwner;
-    nextActionReason = requestedActionHumanized
-      ? `По системному полю задача ждет ответа от ${pendingReplyOwner}; по смыслу нужен следующий шаг: ${requestedActionHumanized}.`
-      : `По системному полю задача ждет ответа именно от ${pendingReplyOwner}.`;
-  } else if (authorWaitingForExternalReply) {
+  if (authorWaitingForExternalReply) {
     if (needsApproval) {
       nextActionOwner = 'согласующий / заказчик';
       nextActionReason = requestedActionHumanized
@@ -266,7 +252,7 @@ export function inferIssueNextStep(input: {
       ? 'По смыслу задача уже подготовлена и упирается в решение или согласование со стороны руководителя/заказчика.'
       : 'Последний комментарий больше похож на готовность к следующему решению, чем на активную работу автора.';
   } else if (lastCommentIntent === 'reporting' || lastCommentIntent === 'doing' || lastCommentIntent === 'blocked') {
-    nextActionOwner = input.assignee || semanticCommentAuthor || input.lastStatusChangedBy;
+    nextActionOwner = semanticCommentAuthor || input.assignee || input.lastStatusChangedBy;
     nextActionReason = lastCommentIntent === 'blocked'
       ? 'Последний содержательный комментарий показывает блокер, поэтому начинать разбор логично с текущего исполнителя.'
       : 'По последнему содержательному комментарию похоже, что текущее движение или фиксация результата идет со стороны исполнителя.';

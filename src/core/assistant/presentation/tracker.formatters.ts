@@ -3,7 +3,6 @@ import {
   buildMyActiveIssuesUrl,
   buildMyOverdueIssuesUrl,
   buildMyRecentlyUpdatedIssuesUrl,
-  buildMyWaitingForReplyUrl,
   formatMetricLink
 } from '../../../shared/utils/tracker-query-links';
 
@@ -65,19 +64,17 @@ export function formatMyDaySummary(summary: {
   totalAssigned: number;
   activeAssigned: number;
   overdueCount: number;
-  waitingForReplyCount: number;
   recentlyUpdatedCount: number;
   topTasks: Array<{
     key: string;
     summary?: string;
     status?: string;
     overdue: boolean;
-    waitingForUser: boolean;
   }>;
 }): string {
   const topLines = summary.topTasks.length
     ? summary.topTasks.slice(0, 3).map((task, index) => {
-        const flags = [task.overdue ? '⏰ просрочена' : null, task.waitingForUser ? '💬 ждет ответа' : null]
+        const flags = [task.overdue ? '⏰ просрочена' : null]
           .filter(Boolean)
           .join(', ');
 
@@ -97,7 +94,6 @@ export function formatMyDaySummary(summary: {
     '📊 Сейчас',
     `• ${formatMetricLink(`Активных: ${summary.activeAssigned}`, buildMyActiveIssuesUrl(linkLogin, summary.terminalStatusNames))}`,
     `• ${formatMetricLink(`Просрочено: ${summary.overdueCount}`, buildMyOverdueIssuesUrl(linkLogin, summary.terminalStatusNames))}`,
-    `• ${formatMetricLink(`Ждут моего ответа: ${summary.waitingForReplyCount}`, buildMyWaitingForReplyUrl(linkLogin, summary.terminalStatusNames))}`,
     `• ${formatMetricLink(`Были обновления за 24ч: ${summary.recentlyUpdatedCount}`, buildMyRecentlyUpdatedIssuesUrl(linkLogin, summary.terminalStatusNames))}`,
     summary.activeAssigned === 0
       ? `• Диагностика: login=${summary.login}; candidates=${summary.assigneeCandidates.join(', ')}; matched=${summary.matchedAssigneeCandidate || 'none'}`

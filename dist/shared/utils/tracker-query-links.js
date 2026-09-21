@@ -4,13 +4,11 @@ exports.buildMyAllIssuesUrl = buildMyAllIssuesUrl;
 exports.buildMyActiveIssuesUrl = buildMyActiveIssuesUrl;
 exports.buildMyClosedIssuesUrl = buildMyClosedIssuesUrl;
 exports.buildMyOverdueIssuesUrl = buildMyOverdueIssuesUrl;
-exports.buildMyWaitingForReplyUrl = buildMyWaitingForReplyUrl;
 exports.buildMyRecentlyUpdatedIssuesUrl = buildMyRecentlyUpdatedIssuesUrl;
 exports.buildTeamAllIssuesUrl = buildTeamAllIssuesUrl;
 exports.buildTeamActiveIssuesUrl = buildTeamActiveIssuesUrl;
 exports.buildTeamOverdueIssuesUrl = buildTeamOverdueIssuesUrl;
 exports.buildTeamStaleIssuesUrl = buildTeamStaleIssuesUrl;
-exports.buildTeamWaitingForReplyUrl = buildTeamWaitingForReplyUrl;
 exports.buildTeamLongInProgressIssuesUrl = buildTeamLongInProgressIssuesUrl;
 exports.buildTeamOldBacklogIssuesUrl = buildTeamOldBacklogIssuesUrl;
 exports.formatMetricLink = formatMetricLink;
@@ -74,13 +72,6 @@ function buildMyOverdueIssuesUrl(login, terminalStatuses) {
         'Deadline: < today()'
     ]));
 }
-function buildMyWaitingForReplyUrl(login, terminalStatuses) {
-    return buildIssuesUrl(joinClauses([
-        `Assignee: ${exactLogin(login)}`,
-        excludeStatusesClause(terminalStatuses),
-        '"Pending Reply From": notEmpty()'
-    ]));
-}
 function buildMyRecentlyUpdatedIssuesUrl(login, terminalStatuses) {
     return buildIssuesUrl(joinClauses([
         `Assignee: ${exactLogin(login)}`,
@@ -115,13 +106,6 @@ function buildTeamStaleIssuesUrl(queueKeys, terminalStatuses) {
         queueClause(queueKeys),
         excludeStatusesClause(terminalStatuses),
         'Updated: < now()-7d'
-    ]));
-}
-function buildTeamWaitingForReplyUrl(queueKeys, terminalStatuses) {
-    return buildIssuesUrl(joinClauses([
-        queueClause(queueKeys),
-        excludeStatusesClause(terminalStatuses),
-        '"Pending Reply From": notEmpty()'
     ]));
 }
 function buildTeamLongInProgressIssuesUrl(queueKeys, terminalStatuses, days) {

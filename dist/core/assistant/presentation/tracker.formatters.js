@@ -38,7 +38,7 @@ function formatIssueBundlePreview(preview) {
 function formatMyDaySummary(summary) {
     const topLines = summary.topTasks.length
         ? summary.topTasks.slice(0, 3).map((task, index) => {
-            const flags = [task.overdue ? '⏰ просрочена' : null, task.waitingForUser ? '💬 ждет ответа' : null]
+            const flags = [task.overdue ? '⏰ просрочена' : null]
                 .filter(Boolean)
                 .join(', ');
             return `${index + 1}. ${(0, tracker_links_1.formatTrackerIssueLabel)(task.key)} — ${task.summary || 'без названия'}${flags ? ` (${flags})` : ''}`;
@@ -54,7 +54,6 @@ function formatMyDaySummary(summary) {
         '📊 Сейчас',
         `• ${(0, tracker_query_links_1.formatMetricLink)(`Активных: ${summary.activeAssigned}`, (0, tracker_query_links_1.buildMyActiveIssuesUrl)(linkLogin, summary.terminalStatusNames))}`,
         `• ${(0, tracker_query_links_1.formatMetricLink)(`Просрочено: ${summary.overdueCount}`, (0, tracker_query_links_1.buildMyOverdueIssuesUrl)(linkLogin, summary.terminalStatusNames))}`,
-        `• ${(0, tracker_query_links_1.formatMetricLink)(`Ждут моего ответа: ${summary.waitingForReplyCount}`, (0, tracker_query_links_1.buildMyWaitingForReplyUrl)(linkLogin, summary.terminalStatusNames))}`,
         `• ${(0, tracker_query_links_1.formatMetricLink)(`Были обновления за 24ч: ${summary.recentlyUpdatedCount}`, (0, tracker_query_links_1.buildMyRecentlyUpdatedIssuesUrl)(linkLogin, summary.terminalStatusNames))}`,
         summary.activeAssigned === 0
             ? `• Диагностика: login=${summary.login}; candidates=${summary.assigneeCandidates.join(', ')}; matched=${summary.matchedAssigneeCandidate || 'none'}`

@@ -27,9 +27,6 @@ function formatExecutiveSummary(result) {
     if (result.staleCount > 0) {
         highlights.push(`${result.staleCount} задач давно без движения`);
     }
-    if (result.waitingForReplyCount > 0) {
-        highlights.push(`${result.waitingForReplyCount} задач ждут ответа`);
-    }
     if (!highlights.length) {
         return ['🟡 Есть отдельные точки внимания, но без явной критики по ключевым сигналам.'];
     }
@@ -55,10 +52,7 @@ function buildSingleQueueWhatHappenedLines(result, queueKeys) {
             : 'Явных просрочек сейчас нет.',
         result.staleCount > 0
             ? (0, tracker_query_links_1.formatMetricLink)(`${result.staleCount} ${pluralizeTask(result.staleCount)} давно без движения`, (0, tracker_query_links_1.buildTeamStaleIssuesUrl)(queueKeys, result.terminalStatusNames))
-            : 'Критичных зависаний без движения сейчас не видно.',
-        result.waitingForReplyCount > 0
-            ? (0, tracker_query_links_1.formatMetricLink)(`${result.waitingForReplyCount} ${pluralizeTask(result.waitingForReplyCount)} ждут ответа`, (0, tracker_query_links_1.buildTeamWaitingForReplyUrl)(queueKeys, result.terminalStatusNames))
-            : 'Зависших ожиданий ответа сейчас не видно.'
+            : 'Критичных зависаний без движения сейчас не видно.'
     ];
 }
 function formatQueueHighlightLine(queue, terminalStatusNames) {
@@ -68,7 +62,6 @@ function formatQueueHighlightLine(queue, terminalStatusNames) {
         (0, tracker_query_links_1.formatMetricLink)(`активных ${queue.active}`, (0, tracker_query_links_1.buildTeamActiveIssuesUrl)(queueKeys, terminalStatusNames)),
         (0, tracker_query_links_1.formatMetricLink)(`просрочено ${queue.overdue}`, (0, tracker_query_links_1.buildTeamOverdueIssuesUrl)(queueKeys, terminalStatusNames)),
         (0, tracker_query_links_1.formatMetricLink)(`без движения ${queue.stale}`, (0, tracker_query_links_1.buildTeamStaleIssuesUrl)(queueKeys, terminalStatusNames)),
-        (0, tracker_query_links_1.formatMetricLink)(`ждут ответа ${queue.waitingForReply}`, (0, tracker_query_links_1.buildTeamWaitingForReplyUrl)(queueKeys, terminalStatusNames)),
         (0, tracker_query_links_1.formatMetricLink)('все задачи', (0, tracker_query_links_1.buildTeamAllIssuesUrl)(queueKeys))
     ].join(' — ');
 }
@@ -77,8 +70,7 @@ function formatTaskLines(tasks, includeQueue = true) {
         ? tasks.slice(0, 5).map((task, index) => {
             const flags = [
                 task.overdue ? '⏰ просрочена' : null,
-                task.stale ? '🕸 без движения' : null,
-                task.waitingForUser ? '💬 ждет ответа' : null
+                task.stale ? '🕸 без движения' : null
             ].filter(Boolean);
             return `${index + 1}. ${(0, tracker_links_1.formatTrackerIssueLabel)(task.key)} — ${task.summary || 'без названия'}${includeQueue && task.queue ? ` [${task.queue}]` : ''}${task.assignee ? ` — ${task.assignee}` : ''}${flags.length ? ` (${flags.join(', ')})` : ''}`;
         })

@@ -9,13 +9,11 @@ export interface ProcessAnalysisTaskItem {
   assignee?: string;
   overdue: boolean;
   stale: boolean;
-  waitingForReply: boolean;
   longInProgress: boolean;
   veryOldStale: boolean;
   veryLongInProgress: boolean;
   daysWithoutUpdate?: number;
   daysInProgress?: number;
-  waitingDays?: number;
 }
 
 export interface ProcessAnalysisQueueItem {
@@ -24,7 +22,6 @@ export interface ProcessAnalysisQueueItem {
   active: number;
   overdue: number;
   stale: number;
-  waitingForReply: number;
   longInProgress: number;
   score: number;
 }
@@ -37,7 +34,7 @@ export interface ProcessAnalysisAssigneeItem {
 }
 
 export type ProcessRiskLevel = 'low' | 'medium' | 'high';
-export type ProcessRiskType = 'overdue' | 'stuck' | 'waiting' | 'overload' | 'old_tail' | 'mixed';
+export type ProcessRiskType = 'overdue' | 'stuck' | 'overload' | 'old_tail' | 'mixed';
 
 export interface ProcessAnalysisResult {
   manager?: { display?: string };
@@ -48,9 +45,7 @@ export interface ProcessAnalysisResult {
   activeIssues: number;
   overdueCount: number;
   staleCount: number;
-  waitingForReplyCount: number;
   longInProgressCount: number;
-  waitingTooLongCount: number;
   oldBacklogCount: number;
   veryLongInProgressCount: number;
   riskLevel: ProcessRiskLevel;
@@ -99,10 +94,6 @@ function isDone(issue: TrackerIssue, doneStatusIds: Set<string>, doneStatusKeys:
   return false;
 }
 
-function isWaitingForReply(issue: TrackerIssue): boolean {
-  return Array.isArray(issue.pendingReplyFrom) && issue.pendingReplyFrom.length > 0;
-}
-
 function isStale(issue: TrackerIssue): boolean {
   const days = diffDaysFromNow(issue.updatedAt);
   return typeof days === 'number' && days > 7;
@@ -136,10 +127,6 @@ function isVeryLongInProgress(issue: TrackerIssue): boolean {
   return typeof days === 'number' && days >= 90;
 }
 
-function getWaitingDays(issue: TrackerIssue): number | undefined {
-  return diffDaysFromNow(issue.lastCommentUpdatedAt || issue.updatedAt || issue.createdAt);
-}
-
 function formatCount(value: number, one: string, few: string, many: string): string {
   const mod10 = value % 10;
   const mod100 = value % 100;
@@ -150,14 +137,13 @@ function formatCount(value: number, one: string, few: string, many: string): str
 }
 
 function scoreQueue(item: Omit<ProcessAnalysisQueueItem, 'score'>): number {
-  return item.active + item.overdue * 10 + item.stale * 7 + item.waitingForReply * 5 + item.longInProgress * 6;
+  return item.active + item.overdue * 10 + item.stale * 7 + item.longInProgress * 6;
 }
 
 function scoreTask(task: ProcessAnalysisTaskItem): number {
   return (task.overdue ? 100 : 0)
     + (task.stale ? 70 : 0)
     + (task.longInProgress ? 60 : 0)
-    + (task.waitingForReply ? 40 : 0)
     + Math.min(task.daysInProgress || 0, 60)
     + Math.min(task.daysWithoutUpdate || 0, 60);
 }
@@ -170,13 +156,11 @@ function mapTask(issue: TrackerIssue, doneStatusIds: Set<string>, doneStatusKeys
     assignee: issue.assignee?.display,
     overdue: isOverdue(issue, doneStatusIds, doneStatusKeys),
     stale: isStale(issue),
-    waitingForReply: isWaitingForReply(issue),
     longInProgress: isLongInProgress(issue),
     veryOldStale: isVeryOldStale(issue),
     veryLongInProgress: isVeryLongInProgress(issue),
     daysWithoutUpdate: diffDaysFromNow(issue.updatedAt),
-    daysInProgress: getDaysInProgress(issue),
-    waitingDays: getWaitingDays(issue)
+    daysInProgress: getDaysInProgress(issue)
   };
 }
 
@@ -235,7 +219,6 @@ function isLegacyTask(task: ProcessAnalysisTaskItem): boolean {
 function isLiveRiskTask(task: ProcessAnalysisTaskItem): boolean {
   if (isLegacyTask(task)) return false;
   if (task.overdue) return true;
-  if (task.waitingForReply && (task.waitingDays || 0) >= 3) return true;
   return task.stale || task.longInProgress;
 }
 
@@ -246,7 +229,6 @@ function isHygieneRiskTask(task: ProcessAnalysisTaskItem): boolean {
 function isActionTask(task: ProcessAnalysisTaskItem): boolean {
   if (!isLiveRiskTask(task)) return false;
   if (task.overdue && (task.daysWithoutUpdate ?? 0) <= 45) return true;
-  if (task.waitingForReply && (task.waitingDays ?? 0) >= 3 && (task.waitingDays ?? 0) <= 30) return true;
   if (task.stale && (task.daysWithoutUpdate ?? 0) >= 8 && (task.daysWithoutUpdate ?? 0) <= 45) return true;
   if (task.longInProgress && (task.daysInProgress ?? 0) >= 10 && (task.daysInProgress ?? 0) <= 45) return true;
   return false;
@@ -258,7 +240,6 @@ function dedupeLines(lines: string[]): string[] {
 
 function actionScoreTask(task: ProcessAnalysisTaskItem): number {
   return (task.overdue ? 140 : 0)
-    + (task.waitingForReply ? 50 : 0)
     + (task.stale ? 45 : 0)
     + (task.longInProgress ? 40 : 0)
     + Math.max(0, 45 - Math.min(task.daysWithoutUpdate || 0, 45))
@@ -269,7 +250,6 @@ function buildRiskLevel(params: {
   activeIssues: number;
   overdueCount: number;
   staleCount: number;
-  waitingTooLongCount: number;
   longInProgressCount: number;
   liveRiskCount: number;
 }): ProcessRiskLevel {
@@ -277,7 +257,6 @@ function buildRiskLevel(params: {
     activeIssues,
     overdueCount,
     staleCount,
-    waitingTooLongCount,
     longInProgressCount,
     liveRiskCount
   } = params;
@@ -290,7 +269,6 @@ function buildRiskLevel(params: {
     || overdueCount >= 3
     || staleCount >= 6
     || longInProgressCount >= 6
-    || waitingTooLongCount >= 4
   ) {
     return 'high';
   }
@@ -300,7 +278,6 @@ function buildRiskLevel(params: {
     || liveRiskCount > 0
     || staleCount > 0
     || longInProgressCount > 0
-    || waitingTooLongCount > 0
   ) {
     return 'medium';
   }
@@ -311,7 +288,6 @@ function buildRiskLevel(params: {
 function buildRiskType(params: {
   overdueCount: number;
   staleCount: number;
-  waitingTooLongCount: number;
   oldBacklogCount: number;
   veryLongInProgressCount: number;
   longInProgressCount: number;
@@ -321,7 +297,6 @@ function buildRiskType(params: {
   const {
     overdueCount,
     staleCount,
-    waitingTooLongCount,
     oldBacklogCount,
     veryLongInProgressCount,
     longInProgressCount,
@@ -331,7 +306,6 @@ function buildRiskType(params: {
 
   if (liveRiskCount > 0 && hygieneRiskCount > 0) return 'mixed';
   if (overdueCount > 0) return 'overdue';
-  if (waitingTooLongCount > 0 && waitingTooLongCount >= staleCount) return 'waiting';
   if (oldBacklogCount > 0 || veryLongInProgressCount > 0) return 'old_tail';
   if (longInProgressCount > 0 || staleCount > 0) return 'stuck';
   return 'overload';
@@ -389,10 +363,6 @@ function buildMainFinding(params: {
     return `${queuePrefix} есть живой риск по срокам: просроченные задачи уже требуют подтвержденного следующего шага.`;
   }
 
-  if (riskType === 'waiting') {
-    return `${queuePrefix} часть работы стопорится на ожидании ответа: задачи висят не из-за статусов, а из-за зависшей коммуникации.`;
-  }
-
   if (riskType === 'stuck') {
     return `${queuePrefix} главный риск — зависшие активные задачи: работа висит без заметного движения и следующего шага.`;
   }
@@ -414,7 +384,6 @@ function buildTaskReason(task: ProcessAnalysisTaskItem): string {
   if (task.overdue) reasons.push('просрочена');
   if (task.stale && task.daysWithoutUpdate !== undefined) reasons.push(`без движения ${task.daysWithoutUpdate} дн.`);
   if (task.longInProgress && task.daysInProgress !== undefined) reasons.push(`в работе ${task.daysInProgress} дн.`);
-  if (task.waitingForReply && task.waitingDays !== undefined) reasons.push(`ждет ответа ${task.waitingDays} дн.`);
 
   return reasons.join(', ');
 }
@@ -445,10 +414,8 @@ export class ProcessAnalysisService {
       'updatedAt',
       'createdAt',
       'deadline',
-      'pendingReplyFrom',
       'queue',
-      'statusStartTime',
-      'lastCommentUpdatedAt'
+      'statusStartTime'
     ];
 
     const doneStatusNames = managerContext.terminalStatusNames;
@@ -471,7 +438,6 @@ export class ProcessAnalysisService {
         active: tasks.length,
         overdue: tasks.filter((task) => task.overdue).length,
         stale: tasks.filter((task) => task.stale).length,
-        waitingForReply: tasks.filter((task) => task.waitingForReply).length,
         longInProgress: tasks.filter((task) => task.longInProgress).length
       };
 
@@ -518,14 +484,12 @@ export class ProcessAnalysisService {
 
     const overdueCount = allTasks.filter((task) => task.overdue).length;
     const staleCount = allTasks.filter((task) => task.stale).length;
-    const waitingForReplyCount = allTasks.filter((task) => task.waitingForReply).length;
     const longInProgressCount = allTasks.filter((task) => task.longInProgress).length;
-    const waitingTooLongCount = allTasks.filter((task) => task.waitingForReply && (task.waitingDays || 0) >= 3).length;
     const oldBacklogCount = allTasks.filter((task) => task.veryOldStale).length;
     const veryLongInProgressCount = allTasks.filter((task) => task.veryLongInProgress).length;
     const liveOverdueCount = liveRiskTasks.filter((task) => task.overdue).length;
     const legacyOverdueCount = overdueCount - liveOverdueCount;
-    const riskTaskCount = allTasks.filter((task) => task.overdue || task.stale || task.waitingForReply || task.longInProgress).length;
+    const riskTaskCount = allTasks.filter((task) => task.overdue || task.stale || task.longInProgress).length;
     const legacyHeavy = riskTaskCount > 0 && hygieneRiskTasks.length / riskTaskCount >= 0.35;
 
     const primaryQueue = queueHighlights[0];
@@ -533,14 +497,12 @@ export class ProcessAnalysisService {
       activeIssues: allTasks.length,
       overdueCount: liveOverdueCount,
       staleCount: liveRiskTasks.filter((task) => task.stale).length,
-      waitingTooLongCount: liveRiskTasks.filter((task) => task.waitingForReply && (task.waitingDays || 0) >= 3).length,
       longInProgressCount: liveRiskTasks.filter((task) => task.longInProgress).length,
       liveRiskCount: liveRiskTasks.length
     });
     const riskType = buildRiskType({
       overdueCount: liveOverdueCount,
       staleCount: liveRiskTasks.filter((task) => task.stale).length,
-      waitingTooLongCount: liveRiskTasks.filter((task) => task.waitingForReply && (task.waitingDays || 0) >= 3).length,
       oldBacklogCount,
       veryLongInProgressCount,
       longInProgressCount: liveRiskTasks.filter((task) => task.longInProgress).length,
@@ -564,10 +526,10 @@ export class ProcessAnalysisService {
     let mainRisk: string | undefined;
     if (primaryQueue && legacyHeavy) {
       mainRisk = `Основной риск сейчас в ${primaryQueue.key}: большая часть сильных сигналов смешана со старым хвостом, поэтому сначала нужно отделить legacy-задачи от живого потока.`;
-    } else if (singleQueueMode && queueKeys[0] && (overdueCount > 0 || staleCount > 0 || waitingForReplyCount > 0 || longInProgressCount > 0)) {
-      mainRisk = `Главная зона риска — ${queueKeys[0]}: просрочено ${overdueCount}, без движения ${staleCount}, ждут ответа ${waitingForReplyCount}, долго в работе ${longInProgressCount}.`;
-    } else if (primaryQueue && (primaryQueue.overdue > 0 || primaryQueue.stale > 0 || primaryQueue.waitingForReply > 0 || primaryQueue.longInProgress > 0)) {
-      mainRisk = `Главная зона риска сейчас — ${primaryQueue.key}: просрочено ${primaryQueue.overdue}, без движения ${primaryQueue.stale}, ждут ответа ${primaryQueue.waitingForReply}, долго в работе ${primaryQueue.longInProgress}.`;
+    } else if (singleQueueMode && queueKeys[0] && (overdueCount > 0 || staleCount > 0 || longInProgressCount > 0)) {
+      mainRisk = `Главная зона риска — ${queueKeys[0]}: просрочено ${overdueCount}, без движения ${staleCount}, долго в работе ${longInProgressCount}.`;
+    } else if (primaryQueue && (primaryQueue.overdue > 0 || primaryQueue.stale > 0 || primaryQueue.longInProgress > 0)) {
+      mainRisk = `Главная зона риска сейчас — ${primaryQueue.key}: просрочено ${primaryQueue.overdue}, без движения ${primaryQueue.stale}, долго в работе ${primaryQueue.longInProgress}.`;
     } else if (liveOverdueCount > 0) {
       mainRisk = `Главный риск сейчас — живые просроченные задачи: ${liveOverdueCount}.`;
     } else if (liveRiskTasks.length > 0) {
@@ -577,7 +539,6 @@ export class ProcessAnalysisService {
     const keySignals: string[] = [];
     const liveStaleCount = liveRiskTasks.filter((task) => task.stale).length;
     const liveLongInProgressCount = liveRiskTasks.filter((task) => task.longInProgress).length;
-    const liveWaitingTooLongCount = liveRiskTasks.filter((task) => task.waitingForReply && (task.waitingDays || 0) >= 3).length;
     const hasMostlySameStaleAndLongInProgress = liveStaleCount > 0
       && liveLongInProgressCount > 0
       && Math.abs(liveStaleCount - liveLongInProgressCount) <= Math.max(1, Math.round(Math.max(liveStaleCount, liveLongInProgressCount) * 0.15));
@@ -601,10 +562,6 @@ export class ProcessAnalysisService {
       if (liveLongInProgressCount > 0) {
         keySignals.push(`${formatCount(liveLongInProgressCount, 'задача слишком долго находится', 'задачи слишком долго находятся', 'задач слишком долго находятся')} в работе.`);
       }
-    }
-
-    if (liveWaitingTooLongCount > 0) {
-      keySignals.push(`${formatCount(liveWaitingTooLongCount, 'задача слишком долго ждет ответа', 'задачи слишком долго ждут ответа', 'задач слишком долго ждут ответа')} — коммуникация тормозит движение.`);
     }
 
     if (legacyHeavy || oldBacklogCount > 0 || veryLongInProgressCount > 0) {
@@ -644,7 +601,6 @@ export class ProcessAnalysisService {
     const todayActions = dedupeLines([
       actionTasks[0] ? `Сначала разобрать ${actionTasks[0].key} и подтвердить по ней следующий шаг.` : '',
       liveRiskTasks.length > 0 ? 'Поднять живые зависшие задачи и проверить по ним владельца и актуальный план.' : '',
-      liveWaitingTooLongCount > 0 ? 'Разблокировать задачи, которые слишком долго ждут ответа.' : '',
       (oldBacklogCount > 0 || veryLongInProgressCount > 0) ? 'Отдельно зачистить старый хвост: закрыть неактуальные задачи или вернуть их в рабочий контур.' : '',
       !singleQueueMode && primaryQueue && primaryQueue.score > 0 ? `Сначала посмотреть очередь ${primaryQueue.key}: там сейчас наибольшая концентрация риска.` : '',
       !liveRiskTasks.length && !oldBacklogCount && !veryLongInProgressCount ? 'Критичных действий не требуется: достаточно обычного контроля статусов и сроков.' : '',
@@ -660,9 +616,7 @@ export class ProcessAnalysisService {
       activeIssues: allTasks.length,
       overdueCount,
       staleCount,
-      waitingForReplyCount,
       longInProgressCount,
-      waitingTooLongCount,
       oldBacklogCount,
       veryLongInProgressCount,
       riskLevel,

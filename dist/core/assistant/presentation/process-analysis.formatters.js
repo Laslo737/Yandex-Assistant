@@ -11,8 +11,6 @@ function formatTaskFlags(task) {
         flags.push(`🕸️ без движения ${task.daysWithoutUpdate}д`);
     if (task.longInProgress && task.daysInProgress !== undefined)
         flags.push(`⌛️ в работе ${task.daysInProgress}д`);
-    if (task.waitingForReply && task.waitingDays !== undefined)
-        flags.push(`💬 ждет ответа ${task.waitingDays}д`);
     if (task.veryOldStale || task.veryLongInProgress)
         flags.push('🧹 старый хвост');
     return flags.join(', ');
@@ -41,8 +39,6 @@ function formatRiskType(type) {
             return 'старый хвост';
         case 'overdue':
             return 'просрочка';
-        case 'waiting':
-            return 'ожидание ответа';
         case 'stuck':
             return 'живой стопор';
         default:
@@ -56,7 +52,6 @@ function formatQueueLine(queue, terminalStatusNames) {
         (0, tracker_query_links_1.formatMetricLink)(`активных ${queue.active}`, (0, tracker_query_links_1.buildTeamActiveIssuesUrl)(queueKeys, terminalStatusNames)),
         (0, tracker_query_links_1.formatMetricLink)(`просрочено ${queue.overdue}`, (0, tracker_query_links_1.buildTeamOverdueIssuesUrl)(queueKeys, terminalStatusNames)),
         (0, tracker_query_links_1.formatMetricLink)(`без движения ${queue.stale}`, (0, tracker_query_links_1.buildTeamStaleIssuesUrl)(queueKeys, terminalStatusNames)),
-        (0, tracker_query_links_1.formatMetricLink)(`ждут ответа ${queue.waitingForReply}`, (0, tracker_query_links_1.buildTeamWaitingForReplyUrl)(queueKeys, terminalStatusNames)),
         `долго в работе ${queue.longInProgress}`
     ].join(' — ');
 }
@@ -94,9 +89,6 @@ function formatProcessAnalysis(result) {
             : []),
         ...(result.staleCount > 0
             ? [`• ${(0, tracker_query_links_1.formatMetricLink)(`Без движения > 7д: ${result.staleCount}`, (0, tracker_query_links_1.buildTeamStaleIssuesUrl)(queueKeys, result.terminalStatusNames))}`]
-            : []),
-        ...(result.waitingForReplyCount > 0
-            ? [`• ${(0, tracker_query_links_1.formatMetricLink)(`Ждут ответа всего: ${result.waitingForReplyCount}`, (0, tracker_query_links_1.buildTeamWaitingForReplyUrl)(queueKeys, result.terminalStatusNames))}`]
             : []),
         ...(result.longInProgressCount > 0
             ? [`• ${(0, tracker_query_links_1.formatMetricLink)(`${formatCount(result.longInProgressCount, 'задача', 'задачи', 'задач')} в работе больше 10д`, (0, tracker_query_links_1.buildTeamLongInProgressIssuesUrl)(queueKeys, result.terminalStatusNames, 10))}`]

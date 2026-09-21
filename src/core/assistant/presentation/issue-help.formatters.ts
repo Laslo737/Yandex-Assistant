@@ -24,7 +24,6 @@ export function formatIssueHelpResult(result: {
       probableCauses: string[];
       recommendations: string[];
       nextActionOwner?: string;
-      waitingForReplyFrom?: string[];
       authorWaitingForExternalReply?: boolean;
       needsApproval?: boolean;
     };

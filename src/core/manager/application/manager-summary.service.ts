@@ -15,7 +15,6 @@ export interface ManagerTaskItem {
   status?: string;
   updatedAt?: string;
   deadline?: string;
-  waitingForUser: boolean;
   overdue: boolean;
   stale: boolean;
 }
@@ -27,7 +26,6 @@ export interface ManagerQueueStats {
   active: number;
   overdue: number;
   stale: number;
-  waitingForReply: number;
   topTasks: ManagerTaskItem[];
 }
 
@@ -41,7 +39,6 @@ export interface ManagerSummary {
   problematicCount: number;
   overdueCount: number;
   staleCount: number;
-  waitingForReplyCount: number;
   queueStats: ManagerQueueStats[];
   topTasks: ManagerTaskItem[];
 }
@@ -69,10 +66,6 @@ function isDone(issue: TrackerIssue, doneStatusIds: Set<string>, doneStatusKeys:
   return false;
 }
 
-function isWaitingForUser(issue: TrackerIssue): boolean {
-  return Array.isArray(issue.pendingReplyFrom) && issue.pendingReplyFrom.length > 0;
-}
-
 function isStale(issue: TrackerIssue): boolean {
   const updated = toDate(issue.updatedAt);
   if (!updated) return false;
@@ -92,7 +85,6 @@ function scoreTask(task: ManagerTaskItem): number {
   let score = 0;
   if (task.overdue) score += 100;
   if (task.stale) score += 60;
-  if (task.waitingForUser) score += 40;
   return score;
 }
 
@@ -105,7 +97,6 @@ function mapTask(issue: TrackerIssue, doneStatusIds: Set<string>, doneStatusKeys
     status: issue.status?.display,
     updatedAt: issue.updatedAt,
     deadline: getDeadline(issue),
-    waitingForUser: isWaitingForUser(issue),
     overdue: isOverdue(issue, doneStatusIds, doneStatusKeys),
     stale: isStale(issue)
   };
@@ -314,7 +305,6 @@ export class ManagerSummaryService {
       'assignee',
       'updatedAt',
       'deadline',
-      'pendingReplyFrom',
       'queue'
     ];
 
@@ -351,7 +341,6 @@ export class ManagerSummaryService {
         active: active.length,
         overdue: activeTasks.filter((task) => task.overdue).length,
         stale: activeTasks.filter((task) => task.stale).length,
-        waitingForReply: activeTasks.filter((task) => task.waitingForUser).length,
         topTasks: activeTasks
           .slice()
           .sort((a, b) => scoreTask(b) - scoreTask(a))
@@ -366,10 +355,9 @@ export class ManagerSummaryService {
       terminalStatusNames: terminalStatuses.map((status) => status.name || status.key || String(status.id)).filter(Boolean),
       totalIssues: allIssues.length,
       activeIssues: activeIssues.length,
-      problematicCount: tasks.filter((task) => task.overdue || task.stale || task.waitingForUser).length,
+      problematicCount: tasks.filter((task) => task.overdue || task.stale).length,
       overdueCount: tasks.filter((task) => task.overdue).length,
       staleCount: tasks.filter((task) => task.stale).length,
-      waitingForReplyCount: tasks.filter((task) => task.waitingForUser).length,
       queueStats,
       topTasks: tasks
         .slice()

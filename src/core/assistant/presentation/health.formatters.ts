@@ -4,7 +4,6 @@ import {
   buildTeamAllIssuesUrl,
   buildTeamOverdueIssuesUrl,
   buildTeamStaleIssuesUrl,
-  buildTeamWaitingForReplyUrl,
   formatMetricLink
 } from '../../../shared/utils/tracker-query-links';
 
@@ -22,7 +21,6 @@ type HealthFormatterResult = {
   terminalStatusNames: string[];
   overdueCount: number;
   staleCount: number;
-  waitingForReplyCount: number;
   activeIssues: number;
   risks: string[];
   recommendations: string[];
@@ -32,7 +30,6 @@ type HealthFormatterResult = {
     active: number;
     overdue: number;
     stale: number;
-    waitingForReply: number;
     healthLabel: string;
   }>;
   topTasks: Array<{
@@ -42,7 +39,6 @@ type HealthFormatterResult = {
     assignee?: string;
     overdue: boolean;
     stale: boolean;
-    waitingForUser: boolean;
   }>;
 };
 
@@ -75,10 +71,6 @@ function formatExecutiveSummary(result: HealthFormatterResult): string[] {
   if (result.staleCount > 0) {
     highlights.push(`${result.staleCount} задач давно без движения`);
   }
-  if (result.waitingForReplyCount > 0) {
-    highlights.push(`${result.waitingForReplyCount} задач ждут ответа`);
-  }
-
   if (!highlights.length) {
     return ['🟡 Есть отдельные точки внимания, но без явной критики по ключевым сигналам.'];
   }
@@ -107,10 +99,7 @@ function buildSingleQueueWhatHappenedLines(result: HealthFormatterResult, queueK
       : 'Явных просрочек сейчас нет.',
     result.staleCount > 0
       ? formatMetricLink(`${result.staleCount} ${pluralizeTask(result.staleCount)} давно без движения`, buildTeamStaleIssuesUrl(queueKeys, result.terminalStatusNames))
-      : 'Критичных зависаний без движения сейчас не видно.',
-    result.waitingForReplyCount > 0
-      ? formatMetricLink(`${result.waitingForReplyCount} ${pluralizeTask(result.waitingForReplyCount)} ждут ответа`, buildTeamWaitingForReplyUrl(queueKeys, result.terminalStatusNames))
-      : 'Зависших ожиданий ответа сейчас не видно.'
+      : 'Критичных зависаний без движения сейчас не видно.'
   ];
 }
 
@@ -120,7 +109,6 @@ function formatQueueHighlightLine(
     active: number;
     overdue: number;
     stale: number;
-    waitingForReply: number;
     healthLabel: string;
   },
   terminalStatusNames: string[]
@@ -132,7 +120,6 @@ function formatQueueHighlightLine(
     formatMetricLink(`активных ${queue.active}`, buildTeamActiveIssuesUrl(queueKeys, terminalStatusNames)),
     formatMetricLink(`просрочено ${queue.overdue}`, buildTeamOverdueIssuesUrl(queueKeys, terminalStatusNames)),
     formatMetricLink(`без движения ${queue.stale}`, buildTeamStaleIssuesUrl(queueKeys, terminalStatusNames)),
-    formatMetricLink(`ждут ответа ${queue.waitingForReply}`, buildTeamWaitingForReplyUrl(queueKeys, terminalStatusNames)),
     formatMetricLink('все задачи', buildTeamAllIssuesUrl(queueKeys))
   ].join(' — ');
 }
@@ -142,8 +129,7 @@ function formatTaskLines(tasks: HealthFormatterResult['topTasks'], includeQueue 
     ? tasks.slice(0, 5).map((task, index) => {
         const flags = [
           task.overdue ? '⏰ просрочена' : null,
-          task.stale ? '🕸 без движения' : null,
-          task.waitingForUser ? '💬 ждет ответа' : null
+          task.stale ? '🕸 без движения' : null
         ].filter(Boolean);
 
         return `${index + 1}. ${formatTrackerIssueLabel(task.key)} — ${task.summary || 'без названия'}${includeQueue && task.queue ? ` [${task.queue}]` : ''}${task.assignee ? ` — ${task.assignee}` : ''}${flags.length ? ` (${flags.join(', ')})` : ''}`;

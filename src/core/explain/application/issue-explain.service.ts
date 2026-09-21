@@ -76,10 +76,6 @@ function isOverdue(issue: TrackerIssue): boolean {
   return getOverdueDays(issue) !== undefined;
 }
 
-function isWaitingForReply(issue: TrackerIssue): boolean {
-  return Array.isArray(issue.pendingReplyFrom) && issue.pendingReplyFrom.length > 0;
-}
-
 function isStatusFieldChange(field: TrackerChangelogFieldChange): boolean {
   const fieldId = String(field.field?.id ?? '').toLowerCase();
   const fieldKey = String(field.field?.key ?? '').toLowerCase();
@@ -241,7 +237,12 @@ export class IssueExplainService {
     const statusSilenceDays = diffDays(lastStatusChange?.updatedAt);
     const overdueDays = getOverdueDays(issue);
     const overdue = overdueDays !== undefined;
-    const waitingForReply = isWaitingForReply(issue);
+    const nextAction = inferIssueNextStep({
+      comments: bundle.comments,
+      assignee: issue.assignee?.display,
+      lastStatusChangedBy: lastStatusChange?.updatedBy?.display
+    });
+    const waitingForReply = nextAction.authorWaitingForExternalReply;
 
     const findings: string[] = [];
     const probableCauses: string[] = [];
@@ -286,14 +287,6 @@ export class IssueExplainService {
     if (!probableCauses.length) {
       probableCauses.push('Явной критичной причины не видно, но стоит проверить актуальность статуса и следующего шага.');
     }
-
-    const nextAction = inferIssueNextStep({
-      issue,
-      comments: bundle.comments,
-      assignee: issue.assignee?.display,
-      lastStatusChangedBy: lastStatusChange?.updatedBy?.display,
-      waitingForReply
-    });
 
     return {
       issueKey: issue.key,

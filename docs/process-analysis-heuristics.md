@@ -33,10 +33,8 @@
 - `updatedAt`
 - `createdAt`
 - `deadline`
-- `pendingReplyFrom`
 - `queue`
 - `statusStartTime`
-- `lastCommentUpdatedAt`
 
 ### Какие задачи попадают в анализ
 В анализ попадают только **active issues**, то есть задачи, которые не находятся в terminal status.
@@ -69,26 +67,7 @@ Terminal statuses определяются через статусы Tracker т�
 - `daysWithoutUpdate > 7`
 - где `daysWithoutUpdate = now - updatedAt`
 
-### 3. Waiting for reply
-Задача считается ожидающей ответа, если:
-- поле `pendingReplyFrom` не пустое.
-
-Формула:
-- `pendingReplyFrom.length > 0`
-
-### 4. Waiting too long
-Это подтип waiting-сигнала.
-
-Задача считается слишком долго ожидающей ответа, если:
-- она already `waitingForReply`;
-- ожидание длится `>= 3` дней.
-
-Формула:
-- `waitingForReply === true`
-- `waitingDays >= 3`
-- где `waitingDays = now - (lastCommentUpdatedAt || updatedAt || createdAt)`
-
-### 5. Long in progress
+### 3. Long in progress
 Задача считается слишком долго находящейся в работе, если:
 - с момента `statusStartTime` прошло `>= 10` дней.
 
@@ -98,7 +77,7 @@ Terminal statuses определяются через статусы Tracker т�
 
 Важно: текущая pragmatic-версия опирается на `statusStartTime`, а deep-link для этого сигнала в Tracker пока строится через выборку активных задач без обновления дольше заданного периода. Это UX-компромисс MVP, а не идеальное 1:1 отражение сигнала.
 
-### 6. Old backlog / старый хвост
+### 4. Old backlog / старый хвост
 Это не incident-сигнал, а отдельный cleanup-сигнал.
 
 Подсигналы:
@@ -116,6 +95,7 @@ Terminal statuses определяются через статусы Tracker т�
 ## Что сознательно не используем
 
 В текущем MVP мы **не** используем:
+- поле `pendingReplyFrom` / «Нужен ответ пользователя»: оно отражает механику упоминаний Tracker и не является надежным источником владельца следующего шага;
 - правило `много смен статуса = проблема`;
 - сложный process mining;
 - причинный анализ через LLM;
@@ -132,7 +112,6 @@ Terminal statuses определяются через статусы Tracker т�
 - `active`
 - `overdue`
 - `stale`
-- `waitingForReply`
 - `longInProgress`
 
 ### Queue score
@@ -142,7 +121,6 @@ Terminal statuses определяются через статусы Tracker т�
 score = active
       + overdue * 10
       + stale * 7
-      + waitingForReply * 5
       + longInProgress * 6
 ```
 
@@ -183,7 +161,6 @@ score = active
 taskScore = (overdue ? 100 : 0)
           + (stale ? 70 : 0)
           + (longInProgress ? 60 : 0)
-          + (waitingForReply ? 40 : 0)
           + min(daysInProgress, 60)
           + min(daysWithoutUpdate, 60)
 ```
@@ -209,7 +186,7 @@ taskScore = (overdue ? 100 : 0)
 - по умолчанию: `Ситуация выглядит ровно: критичных сигналов немного.`
 - если `overdueCount > 0` или `staleCount > 5` или `longInProgressCount > 5`:
   - `Есть заметные процессные риски: стоит разобрать проблемные зоны.`
-- если `overdueCount > 5` или `staleCount > 10` или `waitingTooLongCount > 5`:
+- если `overdueCount > 5` или `staleCount > 10` или `longInProgressCount > 10`:
   - `Накопились сильные сигналы: уже нужен управленческий разбор.`
 
 ### 2. Main risk
@@ -219,14 +196,13 @@ taskScore = (overdue ? 100 : 0)
 - иначе, если есть stale, главным риском считаем зависание без движения.
 
 Пример формата:
-`Главная зона риска сейчас — XXX: просрочено N, без движения N, ждут ответа N, долго в работе N.`
+`Главная зона риска сейчас — XXX: просрочено N, без движения N, долго в работе N.`
 
 ### 3. Summary lines
 Блок `Что видно сейчас` строится из сигналов:
 - stale;
 - long in progress;
 - overdue;
-- waiting too long;
 - primary queue.
 
 Специальное правило против дублей:
@@ -245,7 +221,6 @@ taskScore = (overdue ? 100 : 0)
 Блок `Что сделать сейчас` строится rule-based:
 - есть overdue → разобрать просроченные задачи;
 - есть stale или long in progress → поднять зависшие задачи;
-- есть waiting too long → разблокировать ожидание ответа;
 - есть primary queue → отдельно посмотреть самую рискованную очередь;
 - есть old backlog → разобрать старый хвост.
 
@@ -273,7 +248,6 @@ taskScore = (overdue ? 100 : 0)
 - active issues;
 - overdue;
 - stale (`Updated < now()-7d`);
-- waiting for reply;
 - long in progress (в MVP через `Updated < now()-Nd`);
 - old backlog (`Updated < now()-90d`).
 
@@ -284,7 +258,8 @@ taskScore = (overdue ? 100 : 0)
 ## Ограничения текущего MVP
 
 1. `Long in progress` в логике сервиса считается по `statusStartTime`, а deep-link в Tracker пока приближен через `updatedAt`.
-2. Анализ живет в live-режиме и зависит от fan-out в Tracker API по очередям.
+2. Массовая аналитика не показывает метрику ожидания ответа: надежно определить ее можно только семантическим анализом комментариев конкретной задачи.
+3. Анализ живет в live-режиме и зависит от fan-out в Tracker API по очередям.
 3. Нет precompute/caching именно для process analysis слоя.
 4. Нет сравнения с историческим трендом (`стало хуже/лучше относительно прошлой недели`).
 5. Нет explainability уровня `почему именно так произошло` на основе changelog/comments.

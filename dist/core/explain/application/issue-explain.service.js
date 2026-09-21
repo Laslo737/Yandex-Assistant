@@ -36,9 +36,6 @@ function getOverdueDays(issue) {
 function isOverdue(issue) {
     return getOverdueDays(issue) !== undefined;
 }
-function isWaitingForReply(issue) {
-    return Array.isArray(issue.pendingReplyFrom) && issue.pendingReplyFrom.length > 0;
-}
 function isStatusFieldChange(field) {
     const fieldId = String(field.field?.id ?? '').toLowerCase();
     const fieldKey = String(field.field?.key ?? '').toLowerCase();
@@ -188,7 +185,12 @@ class IssueExplainService {
         const statusSilenceDays = diffDays(lastStatusChange?.updatedAt);
         const overdueDays = getOverdueDays(issue);
         const overdue = overdueDays !== undefined;
-        const waitingForReply = isWaitingForReply(issue);
+        const nextAction = (0, issue_next_step_inference_1.inferIssueNextStep)({
+            comments: bundle.comments,
+            assignee: issue.assignee?.display,
+            lastStatusChangedBy: lastStatusChange?.updatedBy?.display
+        });
+        const waitingForReply = nextAction.authorWaitingForExternalReply;
         const findings = [];
         const probableCauses = [];
         const recommendations = [];
@@ -226,13 +228,6 @@ class IssueExplainService {
         if (!probableCauses.length) {
             probableCauses.push('Явной критичной причины не видно, но стоит проверить актуальность статуса и следующего шага.');
         }
-        const nextAction = (0, issue_next_step_inference_1.inferIssueNextStep)({
-            issue,
-            comments: bundle.comments,
-            assignee: issue.assignee?.display,
-            lastStatusChangedBy: lastStatusChange?.updatedBy?.display,
-            waitingForReply
-        });
         return {
             issueKey: issue.key,
             summary: issue.summary,

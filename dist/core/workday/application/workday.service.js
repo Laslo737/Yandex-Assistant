@@ -22,13 +22,6 @@ function isDone(issue, doneStatusIds, doneStatusKeys) {
         return true;
     return false;
 }
-function getPendingReplyUsers(issue) {
-    const value = issue.pendingReplyFrom;
-    return Array.isArray(value) ? value : [];
-}
-function isWaitingForUser(issue) {
-    return getPendingReplyUsers(issue).length > 0;
-}
 function isRecentlyUpdated(issue) {
     const updated = toDate(issue.updatedAt);
     if (!updated)
@@ -58,7 +51,6 @@ function mapTask(issue, doneStatusIds, doneStatusKeys) {
         priority: issue.priority?.display,
         updatedAt: issue.updatedAt,
         deadline: getDeadline(issue),
-        waitingForUser: isWaitingForUser(issue),
         overdue: isOverdue(issue, doneStatusIds, doneStatusKeys)
     };
 }
@@ -66,8 +58,6 @@ function scoreTask(task) {
     let score = 0;
     if (task.overdue)
         score += 100;
-    if (task.waitingForUser)
-        score += 70;
     if (task.priority?.toLowerCase().includes('крит'))
         score += 50;
     if (task.priority?.toLowerCase().includes('выс'))
@@ -138,7 +128,6 @@ class WorkdayService {
             'assignee',
             'updatedAt',
             'deadline',
-            'pendingReplyFrom',
             'queue'
         ];
         const [statuses, assigneeCandidates] = await Promise.all([
@@ -164,7 +153,6 @@ class WorkdayService {
         const activeIssues = assignedIssues.filter((issue) => !isDone(issue, doneStatusIds, doneStatusKeys));
         const tasks = activeIssues.map((issue) => mapTask(issue, doneStatusIds, doneStatusKeys));
         const overdueCount = tasks.filter((task) => task.overdue).length;
-        const waitingForReplyCount = tasks.filter((task) => task.waitingForUser).length;
         const recentlyUpdatedCount = activeIssues.filter((issue) => isRecentlyUpdated(issue)).length;
         const topTasks = tasks
             .slice()
@@ -178,7 +166,6 @@ class WorkdayService {
             totalAssigned: assignedIssues.length,
             activeAssigned: activeIssues.length,
             overdueCount,
-            waitingForReplyCount,
             recentlyUpdatedCount,
             topTasks
         };

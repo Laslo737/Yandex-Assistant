@@ -1,5 +1,5 @@
 import { TrackerApiClient } from '../../../integrations/yandex-tracker/tracker.client';
-import { TrackerIssue, TrackerStatus, TrackerUser } from '../../../integrations/yandex-tracker/tracker.types';
+import { TrackerIssue, TrackerStatus } from '../../../integrations/yandex-tracker/tracker.types';
 
 export interface UserDayTaskItem {
   key: string;
@@ -9,7 +9,6 @@ export interface UserDayTaskItem {
   priority?: string;
   updatedAt?: string;
   deadline?: string;
-  waitingForUser: boolean;
   overdue: boolean;
 }
 
@@ -21,7 +20,6 @@ export interface UserDaySummary {
   totalAssigned: number;
   activeAssigned: number;
   overdueCount: number;
-  waitingForReplyCount: number;
   recentlyUpdatedCount: number;
   topTasks: UserDayTaskItem[];
 }
@@ -43,15 +41,6 @@ function isDone(issue: TrackerIssue, doneStatusIds: Set<string>, doneStatusKeys:
   if (statusId !== undefined && doneStatusIds.has(String(statusId))) return true;
   if (statusKey && doneStatusKeys.has(statusKey)) return true;
   return false;
-}
-
-function getPendingReplyUsers(issue: TrackerIssue): TrackerUser[] {
-  const value = issue.pendingReplyFrom;
-  return Array.isArray(value) ? (value as TrackerUser[]) : [];
-}
-
-function isWaitingForUser(issue: TrackerIssue): boolean {
-  return getPendingReplyUsers(issue).length > 0;
 }
 
 function isRecentlyUpdated(issue: TrackerIssue): boolean {
@@ -83,7 +72,6 @@ function mapTask(issue: TrackerIssue, doneStatusIds: Set<string>, doneStatusKeys
     priority: issue.priority?.display,
     updatedAt: issue.updatedAt,
     deadline: getDeadline(issue),
-    waitingForUser: isWaitingForUser(issue),
     overdue: isOverdue(issue, doneStatusIds, doneStatusKeys)
   };
 }
@@ -91,7 +79,6 @@ function mapTask(issue: TrackerIssue, doneStatusIds: Set<string>, doneStatusKeys
 function scoreTask(task: UserDayTaskItem): number {
   let score = 0;
   if (task.overdue) score += 100;
-  if (task.waitingForUser) score += 70;
   if (task.priority?.toLowerCase().includes('крит')) score += 50;
   if (task.priority?.toLowerCase().includes('выс')) score += 30;
   if (task.updatedAt) score += 5;
@@ -176,7 +163,6 @@ export class WorkdayService {
       'assignee',
       'updatedAt',
       'deadline',
-      'pendingReplyFrom',
       'queue'
     ];
 
@@ -211,7 +197,6 @@ export class WorkdayService {
     const tasks = activeIssues.map((issue) => mapTask(issue, doneStatusIds, doneStatusKeys));
 
     const overdueCount = tasks.filter((task) => task.overdue).length;
-    const waitingForReplyCount = tasks.filter((task) => task.waitingForUser).length;
     const recentlyUpdatedCount = activeIssues.filter((issue) => isRecentlyUpdated(issue)).length;
 
     const topTasks = tasks
@@ -227,7 +212,6 @@ export class WorkdayService {
       totalAssigned: assignedIssues.length,
       activeAssigned: activeIssues.length,
       overdueCount,
-      waitingForReplyCount,
       recentlyUpdatedCount,
       topTasks
     };

@@ -464,7 +464,7 @@ Raw layer нужен для аудита, повторного маппинга 
 - `deadline?`
 - `startDate?`
 - `previousStatusKey?`
-- `pendingReplyFromJson?`
+- `pendingReplyFromJson?` — только raw-данные; не использовать для аналитики ожидания и определения владельца следующего шага
 - `followersJson?`
 - `customFieldsJson?`
 - `slaJson?`

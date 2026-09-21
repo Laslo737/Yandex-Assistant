@@ -5,7 +5,6 @@ import {
   buildTeamOldBacklogIssuesUrl,
   buildTeamOverdueIssuesUrl,
   buildTeamStaleIssuesUrl,
-  buildTeamWaitingForReplyUrl,
   formatMetricLink
 } from '../../../shared/utils/tracker-query-links';
 
@@ -18,13 +17,11 @@ type ProcessAnalysisFormatterResult = {
   activeIssues: number;
   overdueCount: number;
   staleCount: number;
-  waitingForReplyCount: number;
   longInProgressCount: number;
-  waitingTooLongCount: number;
   oldBacklogCount: number;
   veryLongInProgressCount: number;
   riskLevel: 'low' | 'medium' | 'high';
-  riskType: 'overdue' | 'stuck' | 'waiting' | 'overload' | 'old_tail' | 'mixed';
+  riskType: 'overdue' | 'stuck' | 'overload' | 'old_tail' | 'mixed';
   headline: string;
   mainRisk?: string;
   mainFinding: string;
@@ -40,7 +37,6 @@ type ProcessAnalysisFormatterResult = {
     active: number;
     overdue: number;
     stale: number;
-    waitingForReply: number;
     longInProgress: number;
     score: number;
   }>;
@@ -57,13 +53,11 @@ type ProcessAnalysisFormatterResult = {
     assignee?: string;
     overdue: boolean;
     stale: boolean;
-    waitingForReply: boolean;
     longInProgress: boolean;
     veryOldStale: boolean;
     veryLongInProgress: boolean;
     daysWithoutUpdate?: number;
     daysInProgress?: number;
-    waitingDays?: number;
   }>;
 };
 
@@ -73,7 +67,6 @@ function formatTaskFlags(task: ProcessAnalysisFormatterResult['topTasks'][number
   if (task.overdue) flags.push('⏰ просрочена');
   if (task.stale && task.daysWithoutUpdate !== undefined) flags.push(`🕸️ без движения ${task.daysWithoutUpdate}д`);
   if (task.longInProgress && task.daysInProgress !== undefined) flags.push(`⌛️ в работе ${task.daysInProgress}д`);
-  if (task.waitingForReply && task.waitingDays !== undefined) flags.push(`💬 ждет ответа ${task.waitingDays}д`);
   if (task.veryOldStale || task.veryLongInProgress) flags.push('🧹 старый хвост');
 
   return flags.join(', ');
@@ -102,8 +95,6 @@ function formatRiskType(type: ProcessAnalysisFormatterResult['riskType']): strin
       return 'старый хвост';
     case 'overdue':
       return 'просрочка';
-    case 'waiting':
-      return 'ожидание ответа';
     case 'stuck':
       return 'живой стопор';
     default:
@@ -122,7 +113,6 @@ function formatQueueLine(
     formatMetricLink(`активных ${queue.active}`, buildTeamActiveIssuesUrl(queueKeys, terminalStatusNames)),
     formatMetricLink(`просрочено ${queue.overdue}`, buildTeamOverdueIssuesUrl(queueKeys, terminalStatusNames)),
     formatMetricLink(`без движения ${queue.stale}`, buildTeamStaleIssuesUrl(queueKeys, terminalStatusNames)),
-    formatMetricLink(`ждут ответа ${queue.waitingForReply}`, buildTeamWaitingForReplyUrl(queueKeys, terminalStatusNames)),
     `долго в работе ${queue.longInProgress}`
   ].join(' — ');
 }
@@ -171,9 +161,6 @@ export function formatProcessAnalysis(result: ProcessAnalysisFormatterResult): s
       : []),
     ...(result.staleCount > 0
       ? [`• ${formatMetricLink(`Без движения > 7д: ${result.staleCount}`, buildTeamStaleIssuesUrl(queueKeys, result.terminalStatusNames))}`]
-      : []),
-    ...(result.waitingForReplyCount > 0
-      ? [`• ${formatMetricLink(`Ждут ответа всего: ${result.waitingForReplyCount}`, buildTeamWaitingForReplyUrl(queueKeys, result.terminalStatusNames))}`]
       : []),
     ...(result.longInProgressCount > 0
       ? [`• ${formatMetricLink(`${formatCount(result.longInProgressCount, 'задача', 'задачи', 'задач')} в работе больше 10д`, buildTeamLongInProgressIssuesUrl(queueKeys, result.terminalStatusNames, 10))}`]

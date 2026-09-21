@@ -4,7 +4,6 @@ import {
   buildTeamAllIssuesUrl,
   buildTeamOverdueIssuesUrl,
   buildTeamStaleIssuesUrl,
-  buildTeamWaitingForReplyUrl,
   formatMetricLink
 } from '../../../shared/utils/tracker-query-links';
 
@@ -16,7 +15,6 @@ type ManagerFormatterSummary = {
   activeIssues: number;
   overdueCount: number;
   staleCount: number;
-  waitingForReplyCount: number;
   queueStats: Array<{
     key: string;
     name?: string;
@@ -24,14 +22,12 @@ type ManagerFormatterSummary = {
     active: number;
     overdue: number;
     stale: number;
-    waitingForReply: number;
     topTasks: Array<{
       key: string;
       summary?: string;
       assignee?: string;
       overdue: boolean;
       stale: boolean;
-      waitingForUser: boolean;
     }>;
   }>;
   topTasks: Array<{
@@ -41,19 +37,16 @@ type ManagerFormatterSummary = {
     assignee?: string;
     overdue: boolean;
     stale: boolean;
-    waitingForUser: boolean;
   }>;
 };
 
 function formatTaskFlags(flagsSource: {
   overdue: boolean;
   stale: boolean;
-  waitingForUser: boolean;
 }): string {
   const flags = [
     flagsSource.overdue ? '⏰ просрочена' : null,
-    flagsSource.stale ? '🕸 без движения' : null,
-    flagsSource.waitingForUser ? '💬 ждет ответа' : null
+    flagsSource.stale ? '🕸 без движения' : null
   ].filter(Boolean);
 
   return flags.length ? ` (${flags.join(', ')})` : '';
@@ -64,14 +57,12 @@ function formatCompactMetrics(metrics: {
   active: number;
   overdue: number;
   stale: number;
-  waitingForReply: number;
 }): string[] {
   return [
     `• Всего задач: ${metrics.total}`,
     `• Активных: ${metrics.active}`,
     `• Просрочено: ${metrics.overdue}`,
-    `• Без движения > 7д: ${metrics.stale}`,
-    `• Ждут ответа: ${metrics.waitingForReply}`
+    `• Без движения > 7д: ${metrics.stale}`
   ];
 }
 
@@ -82,7 +73,6 @@ function formatLinkedQueueMetrics(
     active: number;
     overdue: number;
     stale: number;
-    waitingForReply: number;
   },
   terminalStatusNames: string[]
 ): string[] {
@@ -92,8 +82,7 @@ function formatLinkedQueueMetrics(
     `• ${formatMetricLink(`Всего задач: ${metrics.total}`, buildTeamAllIssuesUrl(queueKeys))}`,
     `• ${formatMetricLink(`Активных: ${metrics.active}`, buildTeamActiveIssuesUrl(queueKeys, terminalStatusNames))}`,
     `• ${formatMetricLink(`Просрочено: ${metrics.overdue}`, buildTeamOverdueIssuesUrl(queueKeys, terminalStatusNames))}`,
-    `• ${formatMetricLink(`Без движения > 7д: ${metrics.stale}`, buildTeamStaleIssuesUrl(queueKeys, terminalStatusNames))}`,
-    `• ${formatMetricLink(`Ждут ответа: ${metrics.waitingForReply}`, buildTeamWaitingForReplyUrl(queueKeys, terminalStatusNames))}`
+    `• ${formatMetricLink(`Без движения > 7д: ${metrics.stale}`, buildTeamStaleIssuesUrl(queueKeys, terminalStatusNames))}`
   ];
 }
 
@@ -116,7 +105,6 @@ function formatSingleQueueView(summary: ManagerFormatterSummary): string {
     `• ${formatMetricLink(`Активных: ${summary.activeIssues}`, buildTeamActiveIssuesUrl(queueKeys, summary.terminalStatusNames))}`,
     `• ${formatMetricLink(`Просрочено: ${summary.overdueCount}`, buildTeamOverdueIssuesUrl(queueKeys, summary.terminalStatusNames))}`,
     `• ${formatMetricLink(`Без движения > 7д: ${summary.staleCount}`, buildTeamStaleIssuesUrl(queueKeys, summary.terminalStatusNames))}`,
-    `• ${formatMetricLink(`Ждут ответа: ${summary.waitingForReplyCount}`, buildTeamWaitingForReplyUrl(queueKeys, summary.terminalStatusNames))}`,
     '',
     '🎯 Фокус',
     ...focusLines
@@ -162,7 +150,6 @@ function formatMultiQueueView(summary: ManagerFormatterSummary): string {
     `• ${formatMetricLink(`Активных: ${summary.activeIssues}`, buildTeamActiveIssuesUrl(queueKeys, summary.terminalStatusNames))}`,
     `• ${formatMetricLink(`Просрочено: ${summary.overdueCount}`, buildTeamOverdueIssuesUrl(queueKeys, summary.terminalStatusNames))}`,
     `• ${formatMetricLink(`Без движения > 7д: ${summary.staleCount}`, buildTeamStaleIssuesUrl(queueKeys, summary.terminalStatusNames))}`,
-    `• ${formatMetricLink(`Ждут ответа: ${summary.waitingForReplyCount}`, buildTeamWaitingForReplyUrl(queueKeys, summary.terminalStatusNames))}`,
     '',
     '🗂 По очередям',
     ...queueBlocks,

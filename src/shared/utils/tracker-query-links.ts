@@ -73,14 +73,6 @@ export function buildMyOverdueIssuesUrl(login: string, terminalStatuses: string[
   ]));
 }
 
-export function buildMyWaitingForReplyUrl(login: string, terminalStatuses: string[]): string {
-  return buildIssuesUrl(joinClauses([
-    `Assignee: ${exactLogin(login)}`,
-    excludeStatusesClause(terminalStatuses),
-    '"Pending Reply From": notEmpty()'
-  ]));
-}
-
 export function buildMyRecentlyUpdatedIssuesUrl(login: string, terminalStatuses: string[]): string {
   return buildIssuesUrl(joinClauses([
     `Assignee: ${exactLogin(login)}`,
@@ -120,14 +112,6 @@ export function buildTeamStaleIssuesUrl(queueKeys: string[], terminalStatuses: s
     queueClause(queueKeys),
     excludeStatusesClause(terminalStatuses),
     'Updated: < now()-7d'
-  ]));
-}
-
-export function buildTeamWaitingForReplyUrl(queueKeys: string[], terminalStatuses: string[]): string {
-  return buildIssuesUrl(joinClauses([
-    queueClause(queueKeys),
-    excludeStatusesClause(terminalStatuses),
-    '"Pending Reply From": notEmpty()'
   ]));
 }
 

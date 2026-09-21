@@ -31,7 +31,6 @@ function getBaseScoreByProblemRatio(problemRatio) {
 function getQueueHealthLabel(queue) {
     const base = 100
         - queue.overdue * 12
-        - queue.waitingForReply * 5
         - (queue.active > 0 ? (queue.stale / queue.active) * 45 : 0);
     const score = clampScore(base);
     return getStatusLabel(score);
@@ -62,11 +61,9 @@ class HealthService {
         const problemRatio = summary.activeIssues > 0 ? summary.problematicCount / summary.activeIssues : 0;
         const overdueRatio = summary.activeIssues > 0 ? summary.overdueCount / summary.activeIssues : 0;
         const staleRatio = summary.activeIssues > 0 ? summary.staleCount / summary.activeIssues : 0;
-        const waitingRatio = summary.activeIssues > 0 ? summary.waitingForReplyCount / summary.activeIssues : 0;
         const baseScore = getBaseScoreByProblemRatio(problemRatio)
             - overdueRatio * 25
-            - staleRatio * 8
-            - waitingRatio * 5;
+            - staleRatio * 8;
         const score = clampScore(baseScore);
         const risks = [];
         const recommendations = [];
@@ -77,10 +74,6 @@ class HealthService {
         if (summary.staleCount > 0) {
             risks.push(`Есть задачи без движения больше 7 дней: ${formatCount(summary.staleCount, 'задача', 'задачи', 'задач')}.`);
             recommendations.push('Разобрать зависшие задачи и снять блокировки или закрыть неактуальные.');
-        }
-        if (summary.waitingForReplyCount > 0) {
-            risks.push(`Есть задачи, которые ждут ответа: ${formatCount(summary.waitingForReplyCount, 'задача', 'задачи', 'задач')}.`);
-            recommendations.push('Проверить зависшие коммуникации и ускорить ответы по ожидающим задачам.');
         }
         const overloadedQueues = summary.queueStats
             .filter((queue) => queue.active >= 25)
@@ -94,7 +87,7 @@ class HealthService {
         }
         const queueHighlights = summary.queueStats
             .slice()
-            .sort((a, b) => (b.overdue * 10 + b.stale * 3 + b.waitingForReply * 2) - (a.overdue * 10 + a.stale * 3 + a.waitingForReply * 2))
+            .sort((a, b) => (b.overdue * 10 + b.stale * 3) - (a.overdue * 10 + a.stale * 3))
             .slice(0, 5)
             .map((queue) => ({
             key: queue.key,
@@ -102,25 +95,20 @@ class HealthService {
             active: queue.active,
             overdue: queue.overdue,
             stale: queue.stale,
-            waitingForReply: queue.waitingForReply,
             healthLabel: getQueueHealthLabel(queue)
         }));
         const whatHappened = [
             `В активной работе ${formatCount(summary.activeIssues, 'задача', 'задачи', 'задач')} по ${formatCount(summary.queues.length, 'очереди', 'очередям', 'очередям')}.`,
             summary.overdueCount > 0 ? `Просрочено ${formatCount(summary.overdueCount, 'задача', 'задачи', 'задач')}.` : 'Явных просрочек сейчас нет.',
-            summary.staleCount > 0 ? `${formatCount(summary.staleCount, 'задача', 'задачи', 'задач')} давно без движения.` : 'Критичных stale-задач не видно.',
-            summary.waitingForReplyCount > 0 ? `${formatCount(summary.waitingForReplyCount, 'задача', 'задачи', 'задач')} жд${summary.waitingForReplyCount === 1 ? 'ет' : 'ут'} ответа.` : 'Зависших ожиданий ответа сейчас не видно.'
+            summary.staleCount > 0 ? `${formatCount(summary.staleCount, 'задача', 'задачи', 'задач')} давно без движения.` : 'Критичных stale-задач не видно.'
         ];
         const bottlenecks = [];
         const primaryQueue = queueHighlights[0];
-        if (primaryQueue && summary.queues.length > 1 && (primaryQueue.overdue > 0 || primaryQueue.stale > 0 || primaryQueue.waitingForReply > 0)) {
-            bottlenecks.push(`Самая напряженная зона сейчас — ${primaryQueue.key}: просрочено ${primaryQueue.overdue}, без движения ${primaryQueue.stale}, ждут ответа ${primaryQueue.waitingForReply}.`);
+        if (primaryQueue && summary.queues.length > 1 && (primaryQueue.overdue > 0 || primaryQueue.stale > 0)) {
+            bottlenecks.push(`Самая напряженная зона сейчас — ${primaryQueue.key}: просрочено ${primaryQueue.overdue}, без движения ${primaryQueue.stale}.`);
         }
         if (summary.staleCount > 0) {
             bottlenecks.push('Основной тормозящий сигнал — задачи без движения: они создают ощущение, что работа висит без следующего шага.');
-        }
-        if (summary.waitingForReplyCount > 0) {
-            bottlenecks.push('Часть задач зависла в коммуникации: работа ждет ответа, а не движется по статусам.');
         }
         if (summary.overdueCount > 0) {
             bottlenecks.push('Есть просроченные задачи: это уже прямой риск по срокам и ожиданиям команды/бизнеса.');
@@ -151,8 +139,8 @@ class HealthService {
         else if (score < 85) {
             headline = 'Ситуация управляемая, но есть несколько точек внимания на сегодня.';
         }
-        const singleQueueMainRisk = summary.queues.length === 1 && (summary.overdueCount > 0 || summary.staleCount > 0 || summary.waitingForReplyCount > 0 || processAnalysis.longInProgressCount > 0)
-            ? `Главная зона риска — ${summary.queues[0].key}: просрочено ${summary.overdueCount}, без движения ${summary.staleCount}, ждут ответа ${summary.waitingForReplyCount}, долго в работе ${processAnalysis.longInProgressCount}.`
+        const singleQueueMainRisk = summary.queues.length === 1 && (summary.overdueCount > 0 || summary.staleCount > 0 || processAnalysis.longInProgressCount > 0)
+            ? `Главная зона риска — ${summary.queues[0].key}: просрочено ${summary.overdueCount}, без движения ${summary.staleCount}, долго в работе ${processAnalysis.longInProgressCount}.`
             : undefined;
         const healthTopTasks = processAnalysis.firstActionTask
             ? [
@@ -174,7 +162,6 @@ class HealthService {
             oldBacklogLines,
             overdueCount: summary.overdueCount,
             staleCount: summary.staleCount,
-            waitingForReplyCount: summary.waitingForReplyCount,
             activeIssues: summary.activeIssues,
             risks,
             recommendations,
@@ -185,8 +172,7 @@ class HealthService {
                 queue: task.queue,
                 assignee: task.assignee,
                 overdue: task.overdue,
-                stale: task.stale,
-                waitingForUser: task.waitingForReply
+                stale: task.stale
             }))
         };
     }

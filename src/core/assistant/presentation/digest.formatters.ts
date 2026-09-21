@@ -4,22 +4,18 @@ import {
   buildMyAllIssuesUrl,
   buildMyOverdueIssuesUrl,
   buildMyRecentlyUpdatedIssuesUrl,
-  buildMyWaitingForReplyUrl,
   buildTeamActiveIssuesUrl,
   buildTeamAllIssuesUrl,
   buildTeamOverdueIssuesUrl,
   buildTeamStaleIssuesUrl,
-  buildTeamWaitingForReplyUrl,
   formatMetricLink
 } from '../../../shared/utils/tracker-query-links';
 
 function formatTaskFlags(flagsSource: {
   overdue: boolean;
-  waitingForUser: boolean;
 }): string {
   const flags = [
-    flagsSource.overdue ? '⏰ просрочена' : null,
-    flagsSource.waitingForUser ? '💬 ждет ответа' : null
+    flagsSource.overdue ? '⏰ просрочена' : null
   ].filter(Boolean);
 
   return flags.length ? ` (${flags.join(', ')})` : '';
@@ -32,13 +28,11 @@ export function formatEmployeeDigest(summary: {
   totalAssigned: number;
   activeAssigned: number;
   overdueCount: number;
-  waitingForReplyCount: number;
   recentlyUpdatedCount: number;
   topTasks: Array<{
     key: string;
     summary?: string;
     overdue: boolean;
-    waitingForUser: boolean;
   }>;
 }): string {
   const focusLines = summary.topTasks.length
@@ -57,7 +51,6 @@ export function formatEmployeeDigest(summary: {
     linkLogin ? `• ${formatMetricLink(`Всего задач на мне: ${summary.totalAssigned}`, buildMyAllIssuesUrl(linkLogin))}` : `• Всего задач на мне: ${summary.totalAssigned}`,
     linkLogin && summary.terminalStatusNames ? `• ${formatMetricLink(`Активных: ${summary.activeAssigned}`, buildMyActiveIssuesUrl(linkLogin, summary.terminalStatusNames))}` : `• Активных: ${summary.activeAssigned}`,
     linkLogin && summary.terminalStatusNames ? `• ${formatMetricLink(`Просрочено: ${summary.overdueCount}`, buildMyOverdueIssuesUrl(linkLogin, summary.terminalStatusNames))}` : `• Просрочено: ${summary.overdueCount}`,
-    linkLogin && summary.terminalStatusNames ? `• ${formatMetricLink(`Ждут ответа: ${summary.waitingForReplyCount}`, buildMyWaitingForReplyUrl(linkLogin, summary.terminalStatusNames))}` : `• Ждут ответа: ${summary.waitingForReplyCount}`,
     linkLogin && summary.terminalStatusNames ? `• ${formatMetricLink(`Обновлялись за 24ч: ${summary.recentlyUpdatedCount}`, buildMyRecentlyUpdatedIssuesUrl(linkLogin, summary.terminalStatusNames))}` : `• Обновлялись за 24ч: ${summary.recentlyUpdatedCount}`,
     '',
     '🎯 Главное',
@@ -73,7 +66,6 @@ export function formatManagerDigest(summary: {
   activeIssues: number;
   overdueCount: number;
   staleCount: number;
-  waitingForReplyCount: number;
   queueStats: Array<{
     key: string;
     name?: string;
@@ -88,7 +80,6 @@ export function formatManagerDigest(summary: {
     assignee?: string;
     overdue: boolean;
     stale: boolean;
-    waitingForUser: boolean;
   }>;
 }): string {
   const queueKeys = summary.queues.map((queue) => queue.key);
@@ -101,8 +92,7 @@ export function formatManagerDigest(summary: {
     ? summary.topTasks.slice(0, 5).map((task, index) => {
         const flags = [
           task.overdue ? '⏰ просрочена' : null,
-          task.stale ? '🕸 без движения' : null,
-          task.waitingForUser ? '💬 ждет ответа' : null
+          task.stale ? '🕸 без движения' : null
         ].filter(Boolean);
 
         return `${index + 1}. ${formatTrackerIssueLabel(task.key)} — ${task.summary || 'без названия'}${task.queue ? ` [${task.queue}]` : ''}${task.assignee ? ` — ${task.assignee}` : ''}${flags.length ? ` (${flags.join(', ')})` : ''}`;
@@ -118,7 +108,6 @@ export function formatManagerDigest(summary: {
     `• ${formatMetricLink(`Активных: ${summary.activeIssues}`, buildTeamActiveIssuesUrl(queueKeys, summary.terminalStatusNames))}`,
     `• ${formatMetricLink(`Просрочено: ${summary.overdueCount}`, buildTeamOverdueIssuesUrl(queueKeys, summary.terminalStatusNames))}`,
     `• ${formatMetricLink(`Без движения > 7д: ${summary.staleCount}`, buildTeamStaleIssuesUrl(queueKeys, summary.terminalStatusNames))}`,
-    `• ${formatMetricLink(`Ждут ответа: ${summary.waitingForReplyCount}`, buildTeamWaitingForReplyUrl(queueKeys, summary.terminalStatusNames))}`,
     '',
     '🗂 По очередям',
     ...(queueLines.length ? queueLines : ['• Нет данных']),

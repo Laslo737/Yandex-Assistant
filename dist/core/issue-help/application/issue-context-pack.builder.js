@@ -105,23 +105,13 @@ function buildIssuePurpose(bundle) {
     return summary || description;
 }
 function buildEvidence(input) {
-    const waitingForReplyFrom = Array.isArray(input.bundle.issue.pendingReplyFrom)
-        ? input.bundle.issue.pendingReplyFrom
-            .map((item) => {
-            const typed = item;
-            return typed.display || typed.key || (typed.id !== undefined ? String(typed.id) : undefined);
-        })
-            .filter((item) => Boolean(item))
-        : [];
     const evidence = [];
     if (input.explain.overdue)
         evidence.push({ label: 'Срок', detail: 'Задача просрочена.' });
     if (input.explain.waitingForReply) {
         evidence.push({
             label: 'Ожидание ответа',
-            detail: waitingForReplyFrom.length
-                ? `Задача ждет ответа от: ${waitingForReplyFrom.join(', ')}.`
-                : 'Задача находится в ожидании ответа.'
+            detail: 'Последний содержательный комментарий указывает на ожидание внешней реакции.'
         });
     }
     if (input.explain.staleDays !== undefined)
@@ -187,14 +177,6 @@ function buildIssueContextPack(input) {
     const latestBlockingComment = findCommentByPattern(bundle, [/ждем/i, /ждём/i, /буду ждать/i, /блок/i, /после ответа/i, /нужен ответ/i, /ожидаем/i, /согласовать/i, /требуется доработка/i]);
     const waitingTopic = findWaitingTopic(bundle);
     const issuePurpose = buildIssuePurpose(bundle);
-    const waitingForReplyFrom = Array.isArray(bundle.issue.pendingReplyFrom)
-        ? bundle.issue.pendingReplyFrom
-            .map((item) => {
-            const typed = item;
-            return typed.display || typed.key || (typed.id !== undefined ? String(typed.id) : undefined);
-        })
-            .filter((item) => Boolean(item))
-        : [];
     return {
         issueKey,
         userRequest,
@@ -270,7 +252,6 @@ function buildIssueContextPack(input) {
         heuristics: {
             overdue: explain.overdue,
             waitingForReply: explain.waitingForReply,
-            waitingForReplyFrom,
             staleDays: explain.staleDays,
             commentSilenceDays: explain.commentSilenceDays,
             statusSilenceDays: explain.statusSilenceDays,
@@ -320,8 +301,7 @@ function formatIssueContextPackForLlm(pack) {
         '',
         'HEURISTICS:',
         `- overdue: ${pack.heuristics.overdue ? 'yes' : 'no'}`,
-        `- waitingForReply: ${pack.heuristics.waitingForReply ? 'yes' : 'no'}`,
-        `- waitingForReplyFrom: ${pack.heuristics.waitingForReplyFrom.length ? pack.heuristics.waitingForReplyFrom.join(', ') : '—'}`,
+        `- waitingForReplyByComment: ${pack.heuristics.waitingForReply ? 'yes' : 'no'}`,
         `- staleDays: ${pack.heuristics.staleDays ?? '—'}`,
         `- commentSilenceDays: ${pack.heuristics.commentSilenceDays ?? '—'}`,
         `- statusSilenceDays: ${pack.heuristics.statusSilenceDays ?? '—'}`,
@@ -372,7 +352,7 @@ function formatCompactIssueContextPackForLlm(pack) {
         `- issuePurpose: ${pack.derived.issuePurpose || pack.meta.description || '—'}`,
         '',
         'BLOCKER_SUMMARY:',
-        `- waitingForReplyFrom: ${pack.heuristics.waitingForReplyFrom.length ? pack.heuristics.waitingForReplyFrom.join(', ') : '—'}`,
+        `- waitingForReplyByComment: ${pack.heuristics.waitingForReply ? 'yes' : 'no'}`,
         `- waitingTopic: ${pack.derived.waitingTopic || '—'}`,
         `- remainingOpenPoint: ${pack.derived.remainingOpenPoint || '—'}`,
         `- agreedWhat: ${pack.derived.agreedWhat || '—'}`,
