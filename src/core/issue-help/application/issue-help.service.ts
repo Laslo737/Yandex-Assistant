@@ -34,7 +34,12 @@ function parseIntent(text: string): IssueHelpIntent {
     normalized.includes('застр') ||
     normalized.includes('встала') ||
     normalized.includes('встал') ||
-    normalized.includes('blocked')
+    normalized.includes('blocked') ||
+    normalized.includes('чего жд') ||
+    normalized.includes('кого жд') ||
+    normalized.includes('ожида') ||
+    normalized.includes('ждем') ||
+    normalized.includes('ждём')
   ) {
     return 'why-stuck';
   }
@@ -87,21 +92,10 @@ export class IssueHelpService {
   ) {}
 
   canHandleMessage(text: string): boolean {
-    const normalized = text.toLowerCase();
-    const hasIssue = Boolean(extractTrackerIssueKey(text));
-    const mentionsIssueHelp = [
-      'саммари',
-      'summary',
-      'почему',
-      'что делать',
-      'что произошло',
-      'помощь с задачей',
-      'анализ задачи',
-      'задача',
-      'issue'
-    ].some((item) => normalized.includes(item));
-
-    return hasIssue && mentionsIssueHelp;
+    // Any message containing a Tracker issue key is a valid issue-help request.
+    // This also supports natural follow-up questions after opening the menu,
+    // without requiring the user to repeat a predefined command phrase.
+    return Boolean(extractTrackerIssueKey(text));
   }
 
   getEntryPrompt(): string {
