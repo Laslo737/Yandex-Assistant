@@ -134,7 +134,7 @@ class WorkdayService {
         ];
         const [statuses, assigneeCandidates] = await Promise.all([
             this.getStatuses(),
-            Promise.resolve(buildAssigneeCandidates(login))
+            Promise.resolve(options.assigneeLogin ? [options.assigneeLogin] : buildAssigneeCandidates(login))
         ]);
         const terminalStatuses = statuses.filter((status) => status.type === 'done' || status.type === 'cancelled');
         const doneStatusIds = new Set(terminalStatuses.map((status) => String(status.id)));

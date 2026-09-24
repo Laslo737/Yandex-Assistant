@@ -77,7 +77,7 @@ export class HealthService {
   ) {}
 
   async getHealthByLogin(login: string, userId: string): Promise<TeamHealthResult> {
-    const isManager = await this.deps.managerSummaryService.isManagerLogin(login, true);
+    const isManager = await this.deps.managerSummaryService.isManagerLogin(login);
     if (!isManager) {
       throw new Error('Health check сейчас доступен только владельцам очередей / руководителям.');
     }

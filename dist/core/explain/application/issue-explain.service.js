@@ -175,8 +175,8 @@ class IssueExplainService {
     constructor(trackerSyncService) {
         this.trackerSyncService = trackerSyncService;
     }
-    async analyzeIssue(issueIdOrKey) {
-        const bundle = await this.trackerSyncService.fetchIssueBundle(issueIdOrKey);
+    async analyzeIssue(issueIdOrKey, providedBundle) {
+        const bundle = providedBundle ?? await this.trackerSyncService.fetchIssueBundle(issueIdOrKey);
         const issue = bundle.issue;
         const lastComment = findLastHumanComment(bundle.comments);
         const lastStatusChange = findLastStatusChange(bundle.changelog);

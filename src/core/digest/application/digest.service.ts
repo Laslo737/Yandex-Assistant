@@ -14,12 +14,12 @@ export class DigestService {
     }
   ) {}
 
-  async getOnDemandDigestByLogin(login: string, userId: string): Promise<OnDemandDigestResult> {
-    const employee = await this.deps.workdayService.getMyDayByLogin(login, userId);
+  async getOnDemandDigestByLogin(login: string, userId: string, trackerLogin?: string): Promise<OnDemandDigestResult> {
+    const employee = await this.deps.workdayService.getMyDayByLogin(login, userId, { assigneeLogin: trackerLogin });
 
     let manager: OnDemandDigestResult['manager'];
     try {
-      if (await this.deps.managerSummaryService.isManagerLogin(login, true)) {
+      if (await this.deps.managerSummaryService.isManagerLogin(login)) {
         manager = await this.deps.managerSummaryService.getSummaryByLogin(login, userId);
       }
     } catch {

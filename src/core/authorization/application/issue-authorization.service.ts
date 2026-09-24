@@ -9,6 +9,7 @@ export type AuthorizationDecision =
   | { allowed: false; reason: 'SERVICE_UNAVAILABLE' | 'QUEUE_DENY' | 'COMPONENT_UNSUPPORTED' | 'NO_PERMISSION' | 'AUTH_CHECK_FAILED' };
 
 export type IssueAccessResult = AuthorizationDecision & { issueKey: string; userId: string; queue?: string };
+export interface ResolvedTrackerIdentity { id: string; trackerLogin: string; }
 
 function subjects(value: TrackerPermissionSubjects | undefined, field: 'users' | 'groups' | 'roles'): boolean {
   if (!value) return false;
@@ -91,6 +92,8 @@ export function evaluateIssueAccess(
 }
 
 export class IssueAuthorizationService {
+  private readonly identities = new Map<string, { value: ResolvedTrackerIdentity; expiresAt: number }>();
+
   constructor(private readonly tracker: TrackerApiClient) {}
 
   async filterReadableIssues(userId: string, issues: TrackerIssue[]): Promise<TrackerIssue[]> {
@@ -114,15 +117,22 @@ export class IssueAuthorizationService {
   }
 
   async resolveUserId(login: string): Promise<string | undefined> {
+    return (await this.resolveIdentity(login))?.id;
+  }
+
+  async resolveIdentity(login: string): Promise<ResolvedTrackerIdentity | undefined> {
     const messengerLogin = login?.trim().toLowerCase();
     if (!messengerLogin) return undefined;
+    const cached = this.identities.get(messengerLogin);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
     const domain = env.yandexMessenger.loginDomain?.trim().toLowerCase().replace(/^@/, '');
     const suffix = domain ? `@${domain}` : '';
     // Never strip an arbitrary email domain: only the explicitly configured organization domain.
     const localLogin = suffix && messengerLogin.endsWith(suffix)
       ? messengerLogin.slice(0, -suffix.length)
       : undefined;
-    const candidates = [messengerLogin, ...(localLogin ? [localLogin] : [])];
+    // In this organization Tracker uses the short login. Retain full-login fallback.
+    const candidates = localLogin ? [localLogin, messengerLogin] : [messengerLogin];
 
     for (const candidate of candidates) {
       try {
@@ -137,7 +147,9 @@ export class IssueAuthorizationService {
           .filter((id): id is string | number => id !== undefined && id !== null)
           .map(String);
         if (!ids.length || ids.some((id) => !/^\d+$/.test(id) || id !== ids[0])) continue;
-        return ids[0];
+        const identity = { id: ids[0], trackerLogin: trackerLogin || candidate };
+        this.identities.set(messengerLogin, { value: identity, expiresAt: Date.now() + 5 * 60 * 1000 });
+        return identity;
       } catch {
         // The Tracker API may accept only the short login. Try it only for the configured domain.
       }

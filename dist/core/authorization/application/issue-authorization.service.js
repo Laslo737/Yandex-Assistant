@@ -86,6 +86,7 @@ function evaluateIssueAccess(issue, userId, userPermissions, queuePermissions) {
 }
 class IssueAuthorizationService {
     tracker;
+    identities = new Map();
     constructor(tracker) {
         this.tracker = tracker;
     }
@@ -111,16 +112,23 @@ class IssueAuthorizationService {
         return issues.filter((_, index) => Boolean(result[index]));
     }
     async resolveUserId(login) {
+        return (await this.resolveIdentity(login))?.id;
+    }
+    async resolveIdentity(login) {
         const messengerLogin = login?.trim().toLowerCase();
         if (!messengerLogin)
             return undefined;
+        const cached = this.identities.get(messengerLogin);
+        if (cached && cached.expiresAt > Date.now())
+            return cached.value;
         const domain = env_1.env.yandexMessenger.loginDomain?.trim().toLowerCase().replace(/^@/, '');
         const suffix = domain ? `@${domain}` : '';
         // Never strip an arbitrary email domain: only the explicitly configured organization domain.
         const localLogin = suffix && messengerLogin.endsWith(suffix)
             ? messengerLogin.slice(0, -suffix.length)
             : undefined;
-        const candidates = [messengerLogin, ...(localLogin ? [localLogin] : [])];
+        // In this organization Tracker uses the short login. Retain full-login fallback.
+        const candidates = localLogin ? [localLogin, messengerLogin] : [messengerLogin];
         for (const candidate of candidates) {
             try {
                 const user = await this.tracker.getUser(candidate);
@@ -137,7 +145,9 @@ class IssueAuthorizationService {
                     .map(String);
                 if (!ids.length || ids.some((id) => !/^\d+$/.test(id) || id !== ids[0]))
                     continue;
-                return ids[0];
+                const identity = { id: ids[0], trackerLogin: trackerLogin || candidate };
+                this.identities.set(messengerLogin, { value: identity, expiresAt: Date.now() + 5 * 60 * 1000 });
+                return identity;
             }
             catch {
                 // The Tracker API may accept only the short login. Try it only for the configured domain.

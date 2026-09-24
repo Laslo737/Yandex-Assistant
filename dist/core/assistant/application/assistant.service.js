@@ -179,11 +179,10 @@ class AssistantService {
             return this.reply(event, { text: 'Данные Tracker доступны только в личном чате с ботом.' });
         }
         const login = event.from?.login?.trim();
-        const buttons = await this.getMainButtons(event);
         if (!event.text?.trim()) {
             return this.reply(event, {
                 text: 'Пока поддерживаются только текстовые сообщения. Напишите: помощь',
-                buttons
+                buttons: await this.getMainButtons(event)
             });
         }
         const text = normalizeIncomingText(event.text);
@@ -195,10 +194,12 @@ class AssistantService {
                     : 'Yandex Messenger не передал login в этом событии.' });
         }
         // Resolve identity for every data request; never infer it from message text.
-        const userId = login ? await this.deps.authorization.resolveUserId(login) : undefined;
-        if (!userId) {
+        const identity = login ? await this.deps.authorization.resolveIdentity(login) : undefined;
+        if (!identity) {
             return this.reply(event, { text: 'Не удалось подтвердить вашу учетную запись в Tracker. Попробуйте позже.' });
         }
+        const userId = identity.id;
+        const buttons = await this.getMainButtons(event);
         if (['start', 'help', 'menu', 'меню', 'помощь', '📋 меню'].includes(text)) {
             const isManager = login ? await this.deps.managerSummaryService.isManagerLogin(login).catch(() => false) : false;
             return this.reply(event, { text: (0, assistant_formatters_1.formatWelcomeMessage)(isManager), buttons });
@@ -217,7 +218,10 @@ class AssistantService {
                 });
             }
             try {
-                const summary = await this.deps.workdayService.getMyDayByLogin(login, userId, { skipIssueAuthorization: true });
+                const summary = await this.deps.workdayService.getMyDayByLogin(login, userId, {
+                    skipIssueAuthorization: true,
+                    assigneeLogin: identity.trackerLogin
+                });
                 return this.reply(event, {
                     text: (0, tracker_formatters_1.formatMyDaySummary)(summary),
                     buttons: buildMyDayRows(summary.topTasks.map((task) => task.key))
@@ -252,7 +256,7 @@ class AssistantService {
             }
         }
         if (['что изменилось', 'изменения', '🕒 изменения'].includes(text)) {
-            const isManager = login ? await this.deps.managerSummaryService.isManagerLogin(login, true).catch(() => false) : false;
+            const isManager = login ? await this.deps.managerSummaryService.isManagerLogin(login).catch(() => false) : false;
             return this.reply(event, {
                 text: (0, changes_formatters_1.formatChangesEntryPoint)(isManager),
                 buttons: buildChangesEntryRows(isManager)
@@ -279,7 +283,7 @@ class AssistantService {
                 });
             }
             try {
-                const summary = await this.deps.changesService.getMyChangesByLogin(login, periodHours, userId);
+                const summary = await this.deps.changesService.getMyChangesByLogin(login, periodHours, userId, identity.trackerLogin);
                 return this.reply(event, {
                     text: (0, changes_formatters_1.formatChangesSummary)(summary),
                     buttons: buildChangesSummaryRows(summary.topTasks.map((task) => task.key), 'my', false)
@@ -322,7 +326,7 @@ class AssistantService {
                 });
             }
             try {
-                const digest = await this.deps.digestService.getOnDemandDigestByLogin(login, userId);
+                const digest = await this.deps.digestService.getOnDemandDigestByLogin(login, userId, identity.trackerLogin);
                 return this.reply(event, {
                     text: (0, digest_formatters_1.formatCombinedDigest)({
                         employee: (0, digest_formatters_1.formatEmployeeDigest)({ ...digest.employee, login }),
@@ -535,7 +539,7 @@ class AssistantService {
         if (!login)
             return buildMainMenuRows(false, includeDebug);
         try {
-            const isManager = await this.deps.managerSummaryService.isManagerLogin(login, true);
+            const isManager = await this.deps.managerSummaryService.isManagerLogin(login);
             return buildMainMenuRows(isManager, includeDebug);
         }
         catch {

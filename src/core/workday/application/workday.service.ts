@@ -158,7 +158,7 @@ export class WorkdayService {
   async getMyDayByLogin(
     login: string,
     userId: string,
-    options: { skipIssueAuthorization?: boolean } = {}
+    options: { skipIssueAuthorization?: boolean; assigneeLogin?: string } = {}
   ): Promise<UserDaySummary> {
     const fields = [
       'summary',
@@ -173,7 +173,7 @@ export class WorkdayService {
 
     const [statuses, assigneeCandidates] = await Promise.all([
       this.getStatuses(),
-      Promise.resolve(buildAssigneeCandidates(login))
+      Promise.resolve(options.assigneeLogin ? [options.assigneeLogin] : buildAssigneeCandidates(login))
     ]);
 
     const terminalStatuses = statuses.filter((status) => status.type === 'done' || status.type === 'cancelled');

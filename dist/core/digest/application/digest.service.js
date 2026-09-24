@@ -6,11 +6,11 @@ class DigestService {
     constructor(deps) {
         this.deps = deps;
     }
-    async getOnDemandDigestByLogin(login, userId) {
-        const employee = await this.deps.workdayService.getMyDayByLogin(login, userId);
+    async getOnDemandDigestByLogin(login, userId, trackerLogin) {
+        const employee = await this.deps.workdayService.getMyDayByLogin(login, userId, { assigneeLogin: trackerLogin });
         let manager;
         try {
-            if (await this.deps.managerSummaryService.isManagerLogin(login, true)) {
+            if (await this.deps.managerSummaryService.isManagerLogin(login)) {
                 manager = await this.deps.managerSummaryService.getSummaryByLogin(login, userId);
             }
         }

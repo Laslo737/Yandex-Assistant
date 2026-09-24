@@ -23,21 +23,26 @@ test('Digest/default workday counts only authorized issues assigned to the resol
   assert.deepEqual(result.topTasks.map((task) => task.key), ['IT-1']);
 });
 
-test('interactive My day skips ACL calls but still excludes another assignee', async () => {
+test('interactive My day uses one verified Tracker login and excludes another assignee', async () => {
+  const searches: string[] = [];
   const tracker = {
     getStatuses: async () => [],
-    searchIssues: async () => ({ issues: [
+    searchIssues: async (payload: { filter: { assignee: string } }) => {
+      searches.push(payload.filter.assignee);
+      return { issues: [
       { id: '1', key: 'IT-1', assignee: { id: 'my-id' } },
       { id: '2', key: 'IT-2', assignee: { id: 'other-id' } },
       { id: '3', key: 'IT-3', assignee: { id: 'my-id' } }
-    ], pagination: { totalPages: 1 } })
+    ], pagination: { totalPages: 1 } };
+    }
   } as unknown as TrackerApiClient;
   const authorization = {
     filterReadableIssues: async () => { throw new Error('ACL must not run for interactive My day'); }
   } as unknown as IssueAuthorizationService;
   const result = await new WorkdayService(tracker, authorization).getMyDayByLogin(
-    'test.user', 'my-id', { skipIssueAuthorization: true }
+    'test.user', 'my-id', { skipIssueAuthorization: true, assigneeLogin: 'verified.login' }
   );
+  assert.deepEqual(searches, ['verified.login']);
   assert.equal(result.activeAssigned, 2);
   assert.deepEqual(result.topTasks.map((task) => task.key), ['IT-1', 'IT-3']);
 });

@@ -17,7 +17,7 @@ function setup() {
   const deps = {
     sender: { reply: async (_event: unknown, message: { text: string }) => { replies.push(message.text); } },
     authorization: {
-      resolveUserId: async () => 'id-1',
+      resolveIdentity: async () => ({ id: 'id-1', trackerLogin: 'test.user' }),
       canReadIssue: async () => { calls.push('access'); return { allowed: false, reason: 'NO_PERMISSION' }; }
     },
     managerSummaryService: { isManagerLogin: async () => false },

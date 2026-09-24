@@ -118,10 +118,8 @@ export class IssueHelpService {
 
     const normalizedRequest = text.trim();
     const intent = parseIntent(text);
-    const [bundle, explain] = await Promise.all([
-      this.deps.trackerSyncService.fetchIssueBundle(issueKey),
-      this.deps.issueExplainService.analyzeIssue(issueKey)
-    ]);
+    const bundle = await this.deps.trackerSyncService.fetchIssueBundle(issueKey);
+    const explain = await this.deps.issueExplainService.analyzeIssue(issueKey, bundle);
 
     const cacheKey = `${issueKey}::${intent}`;
     const cached = this.aiAnswerCache.get(cacheKey);

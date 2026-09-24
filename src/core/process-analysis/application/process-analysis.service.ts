@@ -399,7 +399,7 @@ export class ProcessAnalysisService {
   ) {}
 
   async getProcessAnalysisByLogin(login: string, userId: string): Promise<ProcessAnalysisResult> {
-    const isManager = await this.deps.managerSummaryService.isManagerLogin(login, true);
+    const isManager = await this.deps.managerSummaryService.isManagerLogin(login);
     if (!isManager) {
       throw new Error('Сценарий «Риски по очередям» сейчас доступен только руководителям / владельцам очередей.');
     }

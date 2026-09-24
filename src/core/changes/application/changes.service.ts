@@ -3,9 +3,7 @@ import { IssueAuthorizationService } from '../../authorization/application/issue
 import {
   TrackerChangelogEntry,
   TrackerComment,
-  TrackerDetailedUser,
-  TrackerIssue,
-  TrackerUser
+  TrackerIssue
 } from '../../../integrations/yandex-tracker/tracker.types';
 import { normalizeTrackerCommentText } from '../../../shared/utils/tracker-comment-text';
 import { ManagerSummaryService } from '../../manager/application/manager-summary.service';
@@ -53,35 +51,6 @@ function buildAssigneeCandidates(login: string): string[] {
   const localPart = noAtPrefix.includes('@') ? noAtPrefix.split('@')[0] : noAtPrefix;
 
   return Array.from(new Set([normalized, noAtPrefix, `@${noAtPrefix}`, localPart].filter(Boolean)));
-}
-
-function buildLoginCandidates(login: string): string[] {
-  const normalized = login.trim();
-  const noAtPrefix = normalized.replace(/^@/, '');
-  const localPart = noAtPrefix.includes('@') ? noAtPrefix.split('@')[0] : noAtPrefix;
-
-  return Array.from(new Set([normalized, noAtPrefix, localPart].filter(Boolean)));
-}
-
-function userIdentitySet(user: TrackerDetailedUser): Set<string> {
-  return new Set(
-    [
-      user.id,
-      user.uid !== undefined ? String(user.uid) : undefined,
-      user.trackerUid !== undefined ? String(user.trackerUid) : undefined,
-      user.passportUid !== undefined ? String(user.passportUid) : undefined,
-      user.cloudUid
-    ].filter(Boolean) as string[]
-  );
-}
-
-function isQueueLead(queueLead: TrackerUser | undefined, user: TrackerDetailedUser): boolean {
-  if (!queueLead) return false;
-  const identities = userIdentitySet(user);
-  if (queueLead.id && identities.has(String(queueLead.id))) return true;
-  if (queueLead.cloudUid && identities.has(String(queueLead.cloudUid))) return true;
-  if (queueLead.passportUid !== undefined && identities.has(String(queueLead.passportUid))) return true;
-  return false;
 }
 
 function isStatusFieldChange(entry: TrackerChangelogEntry): boolean {
@@ -321,19 +290,6 @@ export class ChangesService {
     }
   ) {}
 
-  private async resolveTrackerUser(login: string): Promise<TrackerDetailedUser> {
-    let lastError: unknown;
-    for (const candidate of buildLoginCandidates(login)) {
-      try {
-        return await this.deps.trackerClient.getUser(candidate);
-      } catch (error) {
-        lastError = error;
-      }
-    }
-
-    throw lastError instanceof Error ? lastError : new Error('Не удалось найти пользователя Tracker по login.');
-  }
-
   private async getIssueSignals(issue: TrackerIssue, periodHours: number): Promise<{
     statusChanged: boolean;
     commented: boolean;
@@ -345,7 +301,11 @@ export class ChangesService {
     try {
       const [changelog, comments] = await Promise.all([
         this.deps.trackerClient.getIssueChangelog(issue.key),
-        fetchAllIssueComments(this.deps.trackerClient, issue.key)
+        // A known old lastCommentUpdatedAt means comments cannot add activity in this period.
+        // If the timestamp is missing, fetch them to avoid silently losing evidence.
+        issue.lastCommentUpdatedAt && !commented
+          ? Promise.resolve([] as TrackerComment[])
+          : fetchAllIssueComments(this.deps.trackerClient, issue.key)
       ]);
 
       const recentEntries = changelog.entries
@@ -377,9 +337,9 @@ export class ChangesService {
     }
   }
 
-  async getMyChangesByLogin(login: string, periodHours: number, userId: string): Promise<ChangesSummary> {
+  async getMyChangesByLogin(login: string, periodHours: number, userId: string, trackerLogin?: string): Promise<ChangesSummary> {
     const fields = ['summary', 'statusType', 'assignee', 'updatedAt', 'lastCommentUpdatedAt', 'queue', 'deadline'];
-    const candidates = buildAssigneeCandidates(login);
+    const candidates = trackerLogin ? [trackerLogin] : buildAssigneeCandidates(login);
 
     let matchedAssigneeCandidate = candidates[0];
     let bestIssues: TrackerIssue[] = [];
@@ -388,7 +348,8 @@ export class ChangesService {
     for (const candidate of candidates) {
       const issues = await this.deps.authorization.filterReadableIssues(
         userId, (await fetchAllIssuesByAssignee(this.deps.trackerClient, candidate, fields))
-          .filter((issue) => issue.assignee?.id === userId)
+          .filter((issue) => issue.assignee?.id === userId &&
+            (isWithinHours(issue.updatedAt, periodHours) || isWithinHours(issue.lastCommentUpdatedAt, periodHours)))
       );
       const changed = issues.filter((issue) => isWithinHours(issue.updatedAt, periodHours) || isWithinHours(issue.lastCommentUpdatedAt, periodHours));
       const score = changed.length * 100000 + issues.length;
@@ -432,18 +393,19 @@ export class ChangesService {
   }
 
   async getTeamChangesByLogin(login: string, periodHours: number, userId: string): Promise<ChangesSummary> {
-    if (!(await this.deps.managerSummaryService.isManagerLogin(login, true))) {
+    if (!(await this.deps.managerSummaryService.isManagerLogin(login))) {
       throw new Error('Изменения по команде доступны только владельцам очередей / руководителям.');
     }
 
-    const user = await this.resolveTrackerUser(login);
-    const queues = (await this.deps.trackerClient.getQueues()).filter((queue) => isQueueLead(queue.lead, user));
+    const context = await this.deps.managerSummaryService.getManagerContextByLogin(login);
+    const queues = context.queues;
     const fields = ['summary', 'statusType', 'assignee', 'updatedAt', 'lastCommentUpdatedAt', 'queue', 'deadline'];
 
     const issuesByQueue = await Promise.all(queues.map(async (queue) => ({
       queue,
       issues: await this.deps.authorization.filterReadableIssues(
-        userId, await fetchAllIssuesByQueue(this.deps.trackerClient, queue.key, fields)
+        userId, (await fetchAllIssuesByQueue(this.deps.trackerClient, queue.key, fields))
+          .filter((issue) => isWithinHours(issue.updatedAt, periodHours) || isWithinHours(issue.lastCommentUpdatedAt, periodHours))
       )
     })));
 

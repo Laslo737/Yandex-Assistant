@@ -84,7 +84,9 @@ test('Messenger email maps to short Tracker login only for the configured organi
     } as unknown as ConstructorParameters<typeof IssueAuthorizationService>[0];
     const service = new IssueAuthorizationService(tracker);
     assert.equal(await service.resolveUserId('worker@example.com'), '8000000000000217');
-    assert.deepEqual(calls, ['worker@example.com', 'worker']);
+    assert.deepEqual(calls, ['worker']);
+    assert.deepEqual(await service.resolveIdentity('worker@example.com'), { id: '8000000000000217', trackerLogin: 'worker' });
+    assert.deepEqual(calls, ['worker']);
     calls.length = 0;
     assert.equal(await service.resolveUserId('worker@other.com'), undefined);
     assert.deepEqual(calls, ['worker@other.com']);

@@ -8,7 +8,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/main.js",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "test": "tsx --test src/core/authorization/application/*.test.ts src/core/assistant/application/*.test.ts src/core/workday/application/*.test.ts"
+    "test": "tsx --test src/core/authorization/application/*.test.ts src/core/assistant/application/*.test.ts src/core/workday/application/*.test.ts src/core/issue-help/application/*.test.ts src/core/changes/application/*.test.ts"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
