@@ -69,9 +69,6 @@ function createApp() {
     app.use((0, health_router_1.createHealthRouter)({ platformStatusService }));
     app.use((0, short_link_router_1.createShortLinkRouter)());
     if (env_1.env.yandexMessenger.enabled) {
-        if (!env_1.env.yandexMessenger.webhookSecret) {
-            throw new Error('YANDEX_WEBHOOK_SECRET is required when Yandex Messenger is enabled.');
-        }
         const dedupeStore = new dedupe_store_1.DedupeStore();
         const messengerClient = new yandex_messenger_client_1.YandexMessengerClient();
         const messengerSender = new yandex_messenger_sender_1.YandexMessengerSender(messengerClient);

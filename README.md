@@ -49,12 +49,12 @@ npm run dev
 - `APP_PUBLIC_BASE_URL` — публичный HTTPS URL, обслуживаемый nginx;
 - `YANDEX_API_BASE_URL`, `YANDEX_TRACKER_API_BASE_URL`, `YANDEX_TRACKER_WEB_BASE_URL`, `OPENROUTER_BASE_URL` — URL внешних сервисов.
 
-При `ENABLE_YANDEX_MESSENGER=true` нужны `YANDEX_MESSENGER_KEY` и **обязательный**
-`YANDEX_WEBHOOK_SECRET` (без него приложение не запустится). Ответы по задачам доступны
-только в личном чате. Бот теперь проверяет права пользователя через Tracker перед
-выдачей данных; задачи с компонентами на текущем этапе отклоняются. Включать бота
-для организации только после проверки контракта `fields=...` и ACL на реальных
-тестовых пользователях (см. `todo.md`). При `ENABLE_YANDEX_TRACKER=true` нужны
+При `ENABLE_YANDEX_MESSENGER=true` нужен `YANDEX_MESSENGER_KEY`.
+`YANDEX_WEBHOOK_SECRET` необязателен: если он пустой, webhook работает как прежде;
+если задан, проверяются секретные заголовки. Ответы по задачам доступны только в
+личном чате. Бот проверяет права пользователя через Tracker перед выдачей данных;
+задачи с компонентами на текущем этапе отклоняются. Проверки на реальных аккаунтах
+и ограничения MVP описаны в `todo.md`. При `ENABLE_YANDEX_TRACKER=true` нужны
 `YANDEX_TRACKER_OAUTH_TOKEN` и одна из переменных `YANDEX_TRACKER_ORG_ID` или
 `YANDEX_TRACKER_CLOUD_ORG_ID`. При `LLM_PROVIDER=openrouter` нужен
 `OPENROUTER_API_KEY`. Полный перечень и безопасные значения по умолчанию приведены

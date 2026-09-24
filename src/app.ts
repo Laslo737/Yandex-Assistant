@@ -66,9 +66,6 @@ export function createApp() {
   app.use(createShortLinkRouter());
 
   if (env.yandexMessenger.enabled) {
-    if (!env.yandexMessenger.webhookSecret) {
-      throw new Error('YANDEX_WEBHOOK_SECRET is required when Yandex Messenger is enabled.');
-    }
     const dedupeStore = new DedupeStore();
     const messengerClient = new YandexMessengerClient();
     const messengerSender = new YandexMessengerSender(messengerClient);
