@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AssistantService } from './assistant.service';
-import { YandexMessengerEvent } from '../../../interfaces/yandex-messenger/yandex-messenger.types';
+import { YandexMessengerEvent, YandexMessengerReplyMessage } from '../../../interfaces/yandex-messenger/yandex-messenger.types';
 
 type Deps = ConstructorParameters<typeof AssistantService>[0];
 function event(text: string, type = 'private'): YandexMessengerEvent {
@@ -13,9 +13,13 @@ function event(text: string, type = 'private'): YandexMessengerEvent {
 }
 function setup() {
   const replies: string[] = [];
+  const messages: YandexMessengerReplyMessage[] = [];
   const calls: string[] = [];
   const deps = {
-    sender: { reply: async (_event: unknown, message: { text: string }) => { replies.push(message.text); } },
+    sender: { reply: async (_event: unknown, message: YandexMessengerReplyMessage) => {
+      replies.push(message.text);
+      messages.push(message);
+    } },
     authorization: {
       resolveIdentity: async () => ({ id: 'id-1', trackerLogin: 'test.user' }),
       canReadIssue: async () => { calls.push('access'); return { allowed: false, reason: 'NO_PERMISSION' }; }
@@ -29,14 +33,15 @@ function setup() {
     trackerSyncService: { getIssueBundlePreview: async () => { calls.push('preview'); throw new Error('must not run'); } },
     workdayService: { getMyDayByLogin: async () => { calls.push('day'); throw new Error('must not run'); } }
   } as unknown as Deps;
-  return { service: new AssistantService(deps), replies, calls };
+  return { service: new AssistantService(deps), replies, messages, calls };
 }
 
 test('group chat is rejected before identity lookup or Tracker access', async () => {
-  const { service, replies, calls } = setup();
+  const { service, replies, messages, calls } = setup();
   await service.handleEvent(event('IT-1', 'group'));
   assert.equal(calls.length, 0);
   assert.match(replies[0], /личном чате/);
+  assert.equal(messages[0].buttons, undefined);
 });
 
 test('whoami shows only the sender login in a private chat', async () => {
@@ -50,15 +55,25 @@ test('whoami shows only the sender login in a private chat', async () => {
 });
 
 test('issue-help cannot read a denied issue', async () => {
-  const { service, replies, calls } = setup();
+  const { service, replies, messages, calls } = setup();
   await service.handleEvent(event('Почему IT-1 не двигается?'));
   assert.deepEqual(calls, ['access']);
   assert.match(replies[0], /Нет доступа/);
+  assert.deepEqual(messages[0].buttons, [[{ text: '📋 Меню' }]]);
 });
 
 test('issue preview cannot read a denied issue', async () => {
-  const { service, replies, calls } = setup();
+  const { service, replies, messages, calls } = setup();
   await service.handleEvent(event('issue EXAMPLE-2'));
   assert.deepEqual(calls, ['access']);
   assert.match(replies[0], /Нет доступа/);
+  assert.deepEqual(messages[0].buttons, [[{ text: '📋 Меню' }]]);
+});
+
+test('normal private responses have exactly one Menu button at the bottom', async () => {
+  const { service, messages } = setup();
+  await service.handleEvent(event('меню'));
+  const buttons = messages[0].buttons || [];
+  assert.equal(buttons.flat().filter((button) => button.text === '📋 Меню').length, 1);
+  assert.equal(buttons.at(-1)?.[0]?.text, '📋 Меню');
 });

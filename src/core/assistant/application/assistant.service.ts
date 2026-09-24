@@ -79,7 +79,9 @@ function limitButtonRows(rows: Array<Array<{ text: string }>>, maxButtons = 12):
 }
 
 function withMenuAtBottom(rows: Array<Array<{ text: string }>>, maxButtons = 12): Array<Array<{ text: string }>> {
-  const contentRows = rows.filter((row) => !(row.length === 1 && row[0]?.text === 'Меню'));
+  const contentRows = rows
+    .map((row) => row.filter((button) => button.text !== 'Меню' && button.text !== MENU_ROW[0].text))
+    .filter((row) => row.length > 0);
   const limitedContent = limitButtonRows(contentRows, Math.max(0, maxButtons - 1));
   return [...limitedContent, MENU_ROW];
 }
@@ -682,6 +684,10 @@ export class AssistantService {
   }
 
   private async reply(event: YandexMessengerEvent, message: YandexMessengerReplyMessage) {
-    return this.deps.sender.reply(event, message);
+    // Every private response (including access errors) must offer a way back.
+    // Do not fetch manager status just to render a fallback button.
+    return this.deps.sender.reply(event, event.chat?.type === 'private'
+      ? { ...message, buttons: withMenuAtBottom(message.buttons || []) }
+      : message);
   }
 }
