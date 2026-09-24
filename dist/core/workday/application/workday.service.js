@@ -121,7 +121,7 @@ class WorkdayService {
         };
         return statuses;
     }
-    async getMyDayByLogin(login, userId) {
+    async getMyDayByLogin(login, userId, options = {}) {
         const fields = [
             'summary',
             'status',
@@ -143,8 +143,13 @@ class WorkdayService {
         let assignedIssues = [];
         let bestScore = -1;
         for (const candidate of assigneeCandidates) {
-            const issues = await this.authorization.filterReadableIssues(userId, (await fetchAllIssuesByAssignee(this.trackerClient, candidate, fields))
-                .filter((issue) => issue.assignee?.id === userId));
+            const assignedToUser = (await fetchAllIssuesByAssignee(this.trackerClient, candidate, fields))
+                .filter((issue) => issue.assignee?.id === userId);
+            // MVP demo: the interactive "My day" skips per-issue ACL checks, but never the
+            // exact assignee ID check. Digest and other callers retain authorization.
+            const issues = options.skipIssueAuthorization
+                ? assignedToUser
+                : await this.authorization.filterReadableIssues(userId, assignedToUser);
             const activeIssuesForCandidate = issues.filter((issue) => !isDone(issue, doneStatusIds, doneStatusKeys));
             const score = activeIssuesForCandidate.length * 100000 + issues.length;
             if (score > bestScore) {

@@ -4,7 +4,7 @@ import { TrackerApiClient } from '../../../integrations/yandex-tracker/tracker.c
 import { IssueAuthorizationService } from '../../authorization/application/issue-authorization.service';
 import { WorkdayService } from './workday.service';
 
-test('My day counts only authorized issues assigned to the resolved Tracker ID', async () => {
+test('Digest/default workday counts only authorized issues assigned to the resolved Tracker ID', async () => {
   const tracker = {
     getStatuses: async () => [],
     searchIssues: async () => ({ issues: [
@@ -21,4 +21,23 @@ test('My day counts only authorized issues assigned to the resolved Tracker ID',
   assert.equal(result.totalAssigned, 1);
   assert.equal(result.activeAssigned, 1);
   assert.deepEqual(result.topTasks.map((task) => task.key), ['IT-1']);
+});
+
+test('interactive My day skips ACL calls but still excludes another assignee', async () => {
+  const tracker = {
+    getStatuses: async () => [],
+    searchIssues: async () => ({ issues: [
+      { id: '1', key: 'IT-1', assignee: { id: 'my-id' } },
+      { id: '2', key: 'IT-2', assignee: { id: 'other-id' } },
+      { id: '3', key: 'IT-3', assignee: { id: 'my-id' } }
+    ], pagination: { totalPages: 1 } })
+  } as unknown as TrackerApiClient;
+  const authorization = {
+    filterReadableIssues: async () => { throw new Error('ACL must not run for interactive My day'); }
+  } as unknown as IssueAuthorizationService;
+  const result = await new WorkdayService(tracker, authorization).getMyDayByLogin(
+    'test.user', 'my-id', { skipIssueAuthorization: true }
+  );
+  assert.equal(result.activeAssigned, 2);
+  assert.deepEqual(result.topTasks.map((task) => task.key), ['IT-1', 'IT-3']);
 });

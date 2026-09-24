@@ -312,7 +312,7 @@ export class AssistantService {
       }
 
       try {
-        const summary = await this.deps.workdayService.getMyDayByLogin(login, userId);
+        const summary = await this.deps.workdayService.getMyDayByLogin(login, userId, { skipIssueAuthorization: true });
         return this.reply(event, {
           text: formatMyDaySummary(summary),
           buttons: buildMyDayRows(summary.topTasks.map((task) => task.key))
