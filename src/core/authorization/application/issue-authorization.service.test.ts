@@ -77,11 +77,13 @@ test('Messenger email maps to short Tracker login only for the configured organi
       getUser: async (candidate: string) => {
         calls.push(candidate);
         if (candidate !== 'worker') throw new Error('Not found');
-        return { id: 'tracker-id', login: 'worker', email: 'worker@example.com' };
+        return { uid: 8000000000000217, trackerUid: 8000000000000217,
+          self: 'https://api.tracker.yandex.net/v3/users/8000000000000217',
+          login: 'worker', email: 'worker@example.com' };
       }
     } as unknown as ConstructorParameters<typeof IssueAuthorizationService>[0];
     const service = new IssueAuthorizationService(tracker);
-    assert.equal(await service.resolveUserId('worker@example.com'), 'tracker-id');
+    assert.equal(await service.resolveUserId('worker@example.com'), '8000000000000217');
     assert.deepEqual(calls, ['worker@example.com', 'worker']);
     calls.length = 0;
     assert.equal(await service.resolveUserId('worker@other.com'), undefined);
@@ -89,6 +91,13 @@ test('Messenger email maps to short Tracker login only for the configured organi
   } finally {
     env.yandexMessenger.loginDomain = previous;
   }
+});
+
+test('conflicting Tracker user IDs are rejected', async () => {
+  const tracker = { getUser: async () => ({
+    id: '8000000000000217', trackerUid: 8000000000000218, login: 'worker'
+  }) } as unknown as ConstructorParameters<typeof IssueAuthorizationService>[0];
+  assert.equal(await new IssueAuthorizationService(tracker).resolveUserId('worker'), undefined);
 });
 
 test('API failure and forbidden service-account fetch fail closed', async () => {

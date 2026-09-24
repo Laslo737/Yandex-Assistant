@@ -124,14 +124,20 @@ class IssueAuthorizationService {
         for (const candidate of candidates) {
             try {
                 const user = await this.tracker.getUser(candidate);
-                if (!user.id)
-                    continue;
                 if (user.email && user.email.trim().toLowerCase() !== messengerLogin)
                     continue;
                 const trackerLogin = user.login?.trim().toLowerCase();
                 if (trackerLogin && trackerLogin !== messengerLogin && trackerLogin !== localLogin)
                     continue;
-                return String(user.id);
+                // /users/{login} can return uid/trackerUid and self WITHOUT an `id` field.
+                // These values refer to the Tracker user ID; passportUid/cloudUid are different namespaces.
+                const selfId = user.self?.match(/\/users\/(\d+)\/?(?:\?.*)?$/)?.[1];
+                const ids = [user.id, user.trackerUid, user.uid, selfId]
+                    .filter((id) => id !== undefined && id !== null)
+                    .map(String);
+                if (!ids.length || ids.some((id) => !/^\d+$/.test(id) || id !== ids[0]))
+                    continue;
+                return ids[0];
             }
             catch {
                 // The Tracker API may accept only the short login. Try it only for the configured domain.
