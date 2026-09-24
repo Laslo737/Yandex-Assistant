@@ -28,6 +28,7 @@ export const env = {
     apiBaseUrl: get('YANDEX_API_BASE_URL') as string,
     key: get('YANDEX_MESSENGER_KEY', get('YANDEX_MESSANGER_KEY')),
     webhookSecret: get('YANDEX_WEBHOOK_SECRET'),
+    loginDomain: get('YANDEX_MESSENGER_LOGIN_DOMAIN'),
     authHeader: get('YANDEX_AUTH_HEADER', 'Authorization') as string,
     authScheme: get('YANDEX_AUTH_SCHEME', 'OAuth') as string
   },

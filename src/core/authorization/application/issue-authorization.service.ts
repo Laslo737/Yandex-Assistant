@@ -1,4 +1,5 @@
 import { TrackerApiClient } from '../../../integrations/yandex-tracker/tracker.client';
+import { env } from '../../../config/env';
 import {
   TrackerIssue, TrackerPermissionSubjects, TrackerQueuePermissions, TrackerQueueUserPermissions
 } from '../../../integrations/yandex-tracker/tracker.types';
@@ -113,16 +114,29 @@ export class IssueAuthorizationService {
   }
 
   async resolveUserId(login: string): Promise<string | undefined> {
-    if (!login?.trim()) return undefined;
-    // Do not guess by local part of an email or pick the user with the most tasks.
-    try {
-      const user = await this.tracker.getUser(login.trim());
-      if (!user.id) return undefined;
-      if (user.login && user.login.toLowerCase() !== login.trim().toLowerCase()) return undefined;
-      return String(user.id);
-    } catch {
-      return undefined;
+    const messengerLogin = login?.trim().toLowerCase();
+    if (!messengerLogin) return undefined;
+    const domain = env.yandexMessenger.loginDomain?.trim().toLowerCase().replace(/^@/, '');
+    const suffix = domain ? `@${domain}` : '';
+    // Never strip an arbitrary email domain: only the explicitly configured organization domain.
+    const localLogin = suffix && messengerLogin.endsWith(suffix)
+      ? messengerLogin.slice(0, -suffix.length)
+      : undefined;
+    const candidates = [messengerLogin, ...(localLogin ? [localLogin] : [])];
+
+    for (const candidate of candidates) {
+      try {
+        const user = await this.tracker.getUser(candidate);
+        if (!user.id) continue;
+        if (user.email && user.email.trim().toLowerCase() !== messengerLogin) continue;
+        const trackerLogin = user.login?.trim().toLowerCase();
+        if (trackerLogin && trackerLogin !== messengerLogin && trackerLogin !== localLogin) continue;
+        return String(user.id);
+      } catch {
+        // The Tracker API may accept only the short login. Try it only for the configured domain.
+      }
     }
+    return undefined;
   }
 
   async canReadIssue(

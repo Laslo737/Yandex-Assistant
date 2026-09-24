@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { TrackerIssue, TrackerQueueUserPermissions, TrackerQueuePermissions } from '../../../integrations/yandex-tracker/tracker.types';
 import { evaluateIssueAccess, IssueAuthorizationService } from './issue-authorization.service';
+import { env } from '../../../config/env';
 
 const issue: TrackerIssue = {
   id: 'issue-1', key: 'IT-1', queue: { id: 'IT', key: 'IT' }, components: [],
@@ -65,6 +66,29 @@ test('no full content or queue ACL is fetched before eligibility is established'
   const service = new IssueAuthorizationService(tracker);
   assert.equal((await service.canReadIssue('follower', 'IT-1')).allowed, true);
   assert.deepEqual(calls, ['minimal', 'user', 'acl']);
+});
+
+test('Messenger email maps to short Tracker login only for the configured organization domain', async () => {
+  const previous = env.yandexMessenger.loginDomain;
+  env.yandexMessenger.loginDomain = 'example.com';
+  try {
+    const calls: string[] = [];
+    const tracker = {
+      getUser: async (candidate: string) => {
+        calls.push(candidate);
+        if (candidate !== 'worker') throw new Error('Not found');
+        return { id: 'tracker-id', login: 'worker', email: 'worker@example.com' };
+      }
+    } as unknown as ConstructorParameters<typeof IssueAuthorizationService>[0];
+    const service = new IssueAuthorizationService(tracker);
+    assert.equal(await service.resolveUserId('worker@example.com'), 'tracker-id');
+    assert.deepEqual(calls, ['worker@example.com', 'worker']);
+    calls.length = 0;
+    assert.equal(await service.resolveUserId('worker@other.com'), undefined);
+    assert.deepEqual(calls, ['worker@other.com']);
+  } finally {
+    env.yandexMessenger.loginDomain = previous;
+  }
 });
 
 test('API failure and forbidden service-account fetch fail closed', async () => {
