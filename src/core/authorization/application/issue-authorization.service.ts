@@ -1,0 +1,175 @@
+import { TrackerApiClient } from '../../../integrations/yandex-tracker/tracker.client';
+import {
+  TrackerIssue, TrackerPermissionSubjects, TrackerQueuePermissions, TrackerQueueUserPermissions
+} from '../../../integrations/yandex-tracker/tracker.types';
+
+export type AuthorizationDecision =
+  | { allowed: true; reason: 'QUEUE_READ' | 'QUEUE_WRITE' | 'ISSUE_ROLE' }
+  | { allowed: false; reason: 'SERVICE_UNAVAILABLE' | 'QUEUE_DENY' | 'COMPONENT_UNSUPPORTED' | 'NO_PERMISSION' | 'AUTH_CHECK_FAILED' };
+
+export type IssueAccessResult = AuthorizationDecision & { issueKey: string; userId: string; queue?: string };
+
+function subjects(value: TrackerPermissionSubjects | undefined, field: 'users' | 'groups' | 'roles'): boolean {
+  if (!value) return false;
+  const items = value[field];
+  if (items === undefined) return false;
+  if (!Array.isArray(items) || items.some((item) => !item || typeof item.id !== 'string')) {
+    throw new Error('Invalid Tracker permissions response');
+  }
+  return items.length > 0;
+}
+
+function hasSubject(value: TrackerPermissionSubjects | undefined, fields: Array<'users' | 'groups' | 'roles'>): boolean {
+  if (value !== undefined && (!value || typeof value !== 'object' || Array.isArray(value))) {
+    throw new Error('Invalid Tracker permissions response');
+  }
+  // Validate every field, even when the first one already grants access.
+  return fields.map((field) => subjects(value, field)).some(Boolean);
+}
+
+function userIds(value: unknown): string[] {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.some((item) => !item || typeof item.id !== 'string' ||
+      (typeof item.self === 'string' && !item.self.includes('/users/')))) {
+    throw new Error('Invalid Tracker issue participants');
+  }
+  return value.map((item) => item.id);
+}
+
+export function evaluateIssueAccess(
+  issue: TrackerIssue,
+  userId: string,
+  userPermissions: TrackerQueueUserPermissions,
+  queuePermissions?: TrackerQueuePermissions
+): AuthorizationDecision {
+  if (!issue || !issue.key || !issue.queue?.key || !Array.isArray(issue.components)) {
+    return { allowed: false, reason: 'AUTH_CHECK_FAILED' };
+  }
+  if (issue.components.length) return { allowed: false, reason: 'COMPONENT_UNSUPPORTED' };
+  if (!userPermissions || userPermissions.user?.id !== userId || !userPermissions.permissions ||
+      typeof userPermissions.permissions !== 'object' || Array.isArray(userPermissions.permissions)) {
+    return { allowed: false, reason: 'AUTH_CHECK_FAILED' };
+  }
+
+  try {
+    const permissions = userPermissions.permissions;
+    if (hasSubject(permissions.DENY, ['users', 'groups', 'roles'])) {
+      return { allowed: false, reason: 'QUEUE_DENY' };
+    }
+    // Validate all rights before granting: malformed API response must not become ALLOW.
+    const read = hasSubject(permissions.READ, ['users', 'groups']);
+    const write = hasSubject(permissions.WRITE, ['users', 'groups']);
+    if (read) return { allowed: true, reason: 'QUEUE_READ' };
+    if (write) return { allowed: true, reason: 'QUEUE_WRITE' };
+
+    const issueRoles = new Set<string>();
+    if (issue.createdBy !== undefined && userIds([issue.createdBy]).includes(userId)) issueRoles.add('author');
+    if (issue.assignee !== undefined && userIds([issue.assignee]).includes(userId)) issueRoles.add('assignee');
+    if (userIds(issue.followers).includes(userId)) issueRoles.add('follower');
+    if (issue.access !== undefined && userIds(issue.access).includes(userId) &&
+        issue.access.some((entry) => entry.id === userId && entry.self?.includes('/users/'))) {
+      issueRoles.add('access');
+    }
+    if (!issueRoles.size) return { allowed: false, reason: 'NO_PERMISSION' };
+    if (!queuePermissions || typeof queuePermissions !== 'object') return { allowed: false, reason: 'AUTH_CHECK_FAILED' };
+    if (queuePermissions.read !== undefined && (!queuePermissions.read || typeof queuePermissions.read !== 'object') ||
+        queuePermissions.write !== undefined && (!queuePermissions.write || typeof queuePermissions.write !== 'object')) {
+      return { allowed: false, reason: 'AUTH_CHECK_FAILED' };
+    }
+    const roles = [...(queuePermissions.read?.roles ?? []), ...(queuePermissions.write?.roles ?? [])];
+    if (!Array.isArray(queuePermissions.read?.roles ?? []) || !Array.isArray(queuePermissions.write?.roles ?? []) ||
+        roles.some((role) => !role || typeof role.id !== 'string')) {
+      return { allowed: false, reason: 'AUTH_CHECK_FAILED' };
+    }
+    return roles.some((role) => issueRoles.has(role.id))
+      ? { allowed: true, reason: 'ISSUE_ROLE' }
+      : { allowed: false, reason: 'NO_PERMISSION' };
+  } catch {
+    return { allowed: false, reason: 'AUTH_CHECK_FAILED' };
+  }
+}
+
+export class IssueAuthorizationService {
+  constructor(private readonly tracker: TrackerApiClient) {}
+
+  async filterReadableIssues(userId: string, issues: TrackerIssue[]): Promise<TrackerIssue[]> {
+    const result: TrackerIssue[] = [];
+    const permissionCache = {
+      users: new Map<string, Promise<TrackerQueueUserPermissions>>(),
+      queues: new Map<string, Promise<TrackerQueuePermissions>>()
+    };
+    // Bound concurrency: large queues must not start hundreds of simultaneous API calls.
+    let cursor = 0;
+    await Promise.all(Array.from({ length: Math.min(5, issues.length) }, async () => {
+      while (cursor < issues.length) {
+        const index = cursor++;
+        const issue = issues[index];
+        const decision = await this.canReadIssue(userId, issue.key, permissionCache);
+        if (decision.reason === 'AUTH_CHECK_FAILED') throw new Error('Не удалось проверить доступ ко всем задачам. Попробуйте позже.');
+        if (decision.allowed) result[index] = issue;
+      }
+    }));
+    return issues.filter((_, index) => Boolean(result[index]));
+  }
+
+  async resolveUserId(login: string): Promise<string | undefined> {
+    if (!login?.trim()) return undefined;
+    // Do not guess by local part of an email or pick the user with the most tasks.
+    try {
+      const user = await this.tracker.getUser(login.trim());
+      if (!user.id) return undefined;
+      if (user.login && user.login.toLowerCase() !== login.trim().toLowerCase()) return undefined;
+      return String(user.id);
+    } catch {
+      return undefined;
+    }
+  }
+
+  async canReadIssue(
+    userId: string,
+    issueKey: string,
+    cache?: {
+      users: Map<string, Promise<TrackerQueueUserPermissions>>;
+      queues: Map<string, Promise<TrackerQueuePermissions>>;
+    }
+  ): Promise<IssueAccessResult> {
+    const result = (decision: AuthorizationDecision, queue?: string): IssueAccessResult => {
+      const access = { ...decision, issueKey, userId, queue };
+      console.info('tracker.issue_access', JSON.stringify(access));
+      return access;
+    };
+    if (!userId || !issueKey) return result({ allowed: false, reason: 'AUTH_CHECK_FAILED' });
+
+    let issue: TrackerIssue;
+    try {
+      issue = await this.tracker.getIssueAuthFields(issueKey);
+    } catch (error) {
+      const status = (error as { status?: number }).status;
+      return result({ allowed: false, reason: status === 401 || status === 403 || status === 404 ? 'SERVICE_UNAVAILABLE' : 'AUTH_CHECK_FAILED' });
+    }
+    if (!issue?.queue?.key || !Array.isArray(issue.components) || !issue.key || issue.key.toUpperCase() !== issueKey.toUpperCase()) {
+      return result({ allowed: false, reason: 'AUTH_CHECK_FAILED' });
+    }
+    const queue = issue.queue.key;
+    if (issue.components.length) return result({ allowed: false, reason: 'COMPONENT_UNSUPPORTED' }, queue);
+    try {
+      if (cache && !cache.users.has(queue)) {
+        cache.users.set(queue, this.tracker.getQueueUserPermissions(queue, userId));
+      }
+      const userPermissions = await (cache?.users.get(queue) ?? this.tracker.getQueueUserPermissions(queue, userId));
+      // Only load queue ACL when a matching issue role could be relevant; a second pass after
+      // the direct-rights check keeps permission checks cheap without bypassing DENY.
+      const direct = evaluateIssueAccess(issue, userId, userPermissions);
+      if (direct.reason !== 'AUTH_CHECK_FAILED') return result(direct, queue);
+      // AUTH_CHECK_FAILED can mean missing role ACL or malformed response. Do not grant on malformed input.
+      if (!userPermissions?.permissions || userPermissions.user?.id !== userId) return result(direct, queue);
+      if (cache && !cache.queues.has(queue)) {
+        cache.queues.set(queue, this.tracker.getQueuePermissions(queue));
+      }
+      const queuePermissions = await (cache?.queues.get(queue) ?? this.tracker.getQueuePermissions(queue));
+      return result(evaluateIssueAccess(issue, userId, userPermissions, queuePermissions), queue);
+    } catch {
+      return result({ allowed: false, reason: 'AUTH_CHECK_FAILED' }, queue);
+    }
+  }
+}

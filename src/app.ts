@@ -22,25 +22,28 @@ import { ChangesService } from './core/changes/application/changes.service';
 import { ProcessAnalysisService } from './core/process-analysis/application/process-analysis.service';
 import { IssueHelpAiService } from './core/issue-help/application/issue-help-ai.service';
 import { IssueHelpService } from './core/issue-help/application/issue-help.service';
+import { IssueAuthorizationService } from './core/authorization/application/issue-authorization.service';
 
 export function createApp() {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
 
   const trackerApiClient = new TrackerApiClient();
+  const authorization = new IssueAuthorizationService(trackerApiClient);
   const trackerSyncService = new TrackerSyncService(trackerApiClient);
   const queryService = new QueryService();
   const openRouterAiService = new OpenRouterAiService();
   const platformStatusService = new PlatformStatusService(trackerSyncService);
-  const workdayService = new WorkdayService(trackerApiClient);
-  const managerSummaryService = new ManagerSummaryService(trackerApiClient);
+  const workdayService = new WorkdayService(trackerApiClient, authorization);
+  const managerSummaryService = new ManagerSummaryService(trackerApiClient, authorization);
   const digestService = new DigestService({
     workdayService,
     managerSummaryService
   });
   const processAnalysisService = new ProcessAnalysisService({
     trackerClient: trackerApiClient,
-    managerSummaryService
+    managerSummaryService,
+    authorization
   });
   const healthService = new HealthService({
     managerSummaryService,
@@ -56,17 +59,22 @@ export function createApp() {
   });
   const changesService = new ChangesService({
     trackerClient: trackerApiClient,
-    managerSummaryService
+    managerSummaryService,
+    authorization
   });
   app.use(createHealthRouter({ platformStatusService }));
   app.use(createShortLinkRouter());
 
   if (env.yandexMessenger.enabled) {
+    if (!env.yandexMessenger.webhookSecret) {
+      throw new Error('YANDEX_WEBHOOK_SECRET is required when Yandex Messenger is enabled.');
+    }
     const dedupeStore = new DedupeStore();
     const messengerClient = new YandexMessengerClient();
     const messengerSender = new YandexMessengerSender(messengerClient);
     const assistantService = new AssistantService({
       sender: messengerSender,
+      authorization,
       queryService,
       digestService,
       healthService,

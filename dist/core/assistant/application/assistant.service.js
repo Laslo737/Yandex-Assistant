@@ -175,8 +175,11 @@ class AssistantService {
     async handleEvent(event) {
         if (event.type === 'system')
             return;
-        const buttons = await this.getMainButtons(event);
+        if (event.chat?.type !== 'private') {
+            return this.reply(event, { text: 'Данные Tracker доступны только в личном чате с ботом.' });
+        }
         const login = event.from?.login?.trim();
+        const buttons = await this.getMainButtons(event);
         if (!event.text?.trim()) {
             return this.reply(event, {
                 text: 'Пока поддерживаются только текстовые сообщения. Напишите: помощь',
@@ -184,6 +187,18 @@ class AssistantService {
             });
         }
         const text = normalizeIncomingText(event.text);
+        // Self-diagnostic: reveal only the login supplied by the verified Messenger webhook,
+        // only to the sender in their private chat. Does not accept a login from message text.
+        if (text === 'whoami' || text === 'мой логин') {
+            return this.reply(event, { text: login
+                    ? `Ваш login из события Yandex Messenger: ${login}`
+                    : 'Yandex Messenger не передал login в этом событии.' });
+        }
+        // Resolve identity for every data request; never infer it from message text.
+        const userId = login ? await this.deps.authorization.resolveUserId(login) : undefined;
+        if (!userId) {
+            return this.reply(event, { text: 'Не удалось подтвердить вашу учетную запись в Tracker. Попробуйте позже.' });
+        }
         if (['start', 'help', 'menu', 'меню', 'помощь', '📋 меню'].includes(text)) {
             const isManager = login ? await this.deps.managerSummaryService.isManagerLogin(login).catch(() => false) : false;
             return this.reply(event, { text: (0, assistant_formatters_1.formatWelcomeMessage)(isManager), buttons });
@@ -202,7 +217,7 @@ class AssistantService {
                 });
             }
             try {
-                const summary = await this.deps.workdayService.getMyDayByLogin(login);
+                const summary = await this.deps.workdayService.getMyDayByLogin(login, userId);
                 return this.reply(event, {
                     text: (0, tracker_formatters_1.formatMyDaySummary)(summary),
                     buttons: buildMyDayRows(summary.topTasks.map((task) => task.key))
@@ -223,7 +238,7 @@ class AssistantService {
                 });
             }
             try {
-                const summary = await this.deps.managerSummaryService.getSummaryByLogin(login);
+                const summary = await this.deps.managerSummaryService.getSummaryByLogin(login, userId);
                 return this.reply(event, {
                     text: (0, manager_formatters_1.formatManagerSummary)(summary),
                     buttons: buildManagerSummaryRows(summary.topTasks.map((task) => task.key))
@@ -264,7 +279,7 @@ class AssistantService {
                 });
             }
             try {
-                const summary = await this.deps.changesService.getMyChangesByLogin(login, periodHours);
+                const summary = await this.deps.changesService.getMyChangesByLogin(login, periodHours, userId);
                 return this.reply(event, {
                     text: (0, changes_formatters_1.formatChangesSummary)(summary),
                     buttons: buildChangesSummaryRows(summary.topTasks.map((task) => task.key), 'my', false)
@@ -286,7 +301,7 @@ class AssistantService {
                 });
             }
             try {
-                const summary = await this.deps.changesService.getTeamChangesByLogin(login, periodHours);
+                const summary = await this.deps.changesService.getTeamChangesByLogin(login, periodHours, userId);
                 return this.reply(event, {
                     text: (0, changes_formatters_1.formatChangesSummary)(summary),
                     buttons: buildChangesSummaryRows(summary.topTasks.map((task) => task.key), 'team', true)
@@ -307,7 +322,7 @@ class AssistantService {
                 });
             }
             try {
-                const digest = await this.deps.digestService.getOnDemandDigestByLogin(login);
+                const digest = await this.deps.digestService.getOnDemandDigestByLogin(login, userId);
                 return this.reply(event, {
                     text: (0, digest_formatters_1.formatCombinedDigest)({
                         employee: (0, digest_formatters_1.formatEmployeeDigest)({ ...digest.employee, login }),
@@ -333,6 +348,9 @@ class AssistantService {
             });
         }
         if (this.deps.issueHelpService.canHandleMessage(event.text.trim())) {
+            const issueKey = (0, tracker_links_1.extractTrackerIssueKey)(event.text);
+            if (!issueKey || !(await this.checkIssueAccess(event, userId, issueKey)))
+                return;
             try {
                 const result = await this.deps.issueHelpService.handleMessage(event.text.trim());
                 return this.reply(event, {
@@ -355,7 +373,7 @@ class AssistantService {
                 });
             }
             try {
-                const analysis = await this.deps.processAnalysisService.getProcessAnalysisByLogin(login);
+                const analysis = await this.deps.processAnalysisService.getProcessAnalysisByLogin(login, userId);
                 return this.reply(event, {
                     text: (0, process_analysis_formatters_1.formatProcessAnalysis)(analysis),
                     buttons: buildProcessAnalysisRows(analysis.topTasks.map((task) => task.key))
@@ -376,7 +394,7 @@ class AssistantService {
                 });
             }
             try {
-                const health = await this.deps.healthService.getHealthByLogin(login);
+                const health = await this.deps.healthService.getHealthByLogin(login, userId);
                 return this.reply(event, {
                     text: (0, health_formatters_1.formatHealthCheck)(health),
                     buttons: buildHealthRows(health.topTasks.map((task) => task.key))
@@ -408,6 +426,8 @@ class AssistantService {
                     buttons
                 });
             }
+            if (!(await this.checkIssueAccess(event, userId, issueIdOrKey)))
+                return;
             try {
                 const result = await this.deps.issueExplainService.analyzeIssue(issueIdOrKey);
                 let aiSummary;
@@ -461,38 +481,7 @@ class AssistantService {
             });
         }
         if (text.startsWith('comments debug ') || text.startsWith('issue debug ') || text.startsWith('bundle debug ')) {
-            const issueIdOrKey = event.text.trim().split(/\s+/).slice(2).join(' ').trim();
-            if (!issueIdOrKey) {
-                return this.reply(event, {
-                    text: 'Укажи ключ задачи. Пример: comments debug IT-6911',
-                    buttons
-                });
-            }
-            try {
-                const debug = await this.deps.trackerSyncService.getIssueBundleDebug(issueIdOrKey);
-                return this.reply(event, {
-                    text: [
-                        `Debug bundle — ${debug.issueKey}`,
-                        `comments: ${debug.commentsCount}`,
-                        `changelog: ${debug.changelogCount}`,
-                        `issue.lastCommentUpdatedAt: ${debug.latestCommentAt || '—'}`,
-                        `issue.updatedAt: ${debug.latestIssueUpdateAt || '—'}`,
-                        '',
-                        'Latest comments:',
-                        ...debug.comments.map((comment) => `- id=${comment.id} at=${comment.updatedAt || comment.createdAt || '—'} by=${comment.author || '—'} type=${comment.type || '—'} transport=${comment.transport || '—'} text=${comment.text || '—'}`),
-                        '',
-                        'Latest changelog:',
-                        ...debug.changelog.map((entry) => `- id=${entry.id} at=${entry.updatedAt || '—'} by=${entry.updatedBy || '—'} type=${entry.type || '—'} changes=${entry.changes.join(', ') || '—'}`)
-                    ].join('\n'),
-                    buttons
-                });
-            }
-            catch (error) {
-                return this.reply(event, {
-                    text: formatFriendlyError(`Не удалось получить debug bundle по задаче ${issueIdOrKey}.`, error),
-                    buttons
-                });
-            }
+            return this.reply(event, { text: 'Отладочные команды недоступны.' });
         }
         if (text.startsWith('issue ') || text.startsWith('bundle ') || text.startsWith('задача ')) {
             const issueIdOrKey = event.text.trim().split(/\s+/).slice(1).join(' ').trim();
@@ -502,6 +491,8 @@ class AssistantService {
                     buttons
                 });
             }
+            if (!(await this.checkIssueAccess(event, userId, issueIdOrKey)))
+                return;
             try {
                 const preview = await this.deps.trackerSyncService.getIssueBundlePreview(issueIdOrKey);
                 return this.reply(event, {
@@ -526,6 +517,17 @@ class AssistantService {
             text: this.deps.queryService.getMvpAnswerStub(),
             buttons
         });
+    }
+    async checkIssueAccess(event, userId, issueKey) {
+        const decision = await this.deps.authorization.canReadIssue(userId, issueKey);
+        if (!decision.allowed) {
+            await this.reply(event, {
+                text: decision.reason === 'AUTH_CHECK_FAILED'
+                    ? 'Не удалось проверить доступ к задаче. Попробуйте позже.'
+                    : 'Нет доступа к задаче или задача не найдена.'
+            });
+        }
+        return decision.allowed;
     }
     async getMainButtons(event) {
         const login = event.from?.login?.trim();

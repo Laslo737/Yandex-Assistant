@@ -1,4 +1,5 @@
 import { TrackerApiClient } from '../../../integrations/yandex-tracker/tracker.client';
+import { IssueAuthorizationService } from '../../authorization/application/issue-authorization.service';
 import { TrackerIssue } from '../../../integrations/yandex-tracker/tracker.types';
 import { ManagerSummaryService } from '../../manager/application/manager-summary.service';
 
@@ -393,10 +394,11 @@ export class ProcessAnalysisService {
     private readonly deps: {
       trackerClient: TrackerApiClient;
       managerSummaryService: ManagerSummaryService;
+      authorization: IssueAuthorizationService;
     }
   ) {}
 
-  async getProcessAnalysisByLogin(login: string): Promise<ProcessAnalysisResult> {
+  async getProcessAnalysisByLogin(login: string, userId: string): Promise<ProcessAnalysisResult> {
     const isManager = await this.deps.managerSummaryService.isManagerLogin(login, true);
     if (!isManager) {
       throw new Error('Сценарий «Риски по очередям» сейчас доступен только руководителям / владельцам очередей.');
@@ -425,7 +427,9 @@ export class ProcessAnalysisService {
     const issuesByQueue = await Promise.all(
       queueKeys.map(async (queueKey) => ({
         queueKey,
-        issues: await fetchAllIssuesByQueue(this.deps.trackerClient, queueKey, fields)
+        issues: await this.deps.authorization.filterReadableIssues(
+          userId, await fetchAllIssuesByQueue(this.deps.trackerClient, queueKey, fields)
+        )
       }))
     );
 

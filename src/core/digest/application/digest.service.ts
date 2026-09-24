@@ -14,13 +14,13 @@ export class DigestService {
     }
   ) {}
 
-  async getOnDemandDigestByLogin(login: string): Promise<OnDemandDigestResult> {
-    const employee = await this.deps.workdayService.getMyDayByLogin(login);
+  async getOnDemandDigestByLogin(login: string, userId: string): Promise<OnDemandDigestResult> {
+    const employee = await this.deps.workdayService.getMyDayByLogin(login, userId);
 
     let manager: OnDemandDigestResult['manager'];
     try {
       if (await this.deps.managerSummaryService.isManagerLogin(login, true)) {
-        manager = await this.deps.managerSummaryService.getSummaryByLogin(login);
+        manager = await this.deps.managerSummaryService.getSummaryByLogin(login, userId);
       }
     } catch {
       manager = undefined;

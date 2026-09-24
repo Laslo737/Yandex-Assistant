@@ -1,4 +1,5 @@
 import { TrackerApiClient } from '../../../integrations/yandex-tracker/tracker.client';
+import { IssueAuthorizationService } from '../../authorization/application/issue-authorization.service';
 import {
   TrackerDetailedUser,
   TrackerIssue,
@@ -189,7 +190,7 @@ export class ManagerSummaryService {
   private managerCheckCache = new Map<string, { expiresAt: number; value: boolean }>();
   private resolvedUserCache = new Map<string, { expiresAt: number; value: TrackerDetailedUser }>();
 
-  constructor(private readonly trackerClient: TrackerApiClient) {}
+  constructor(private readonly trackerClient: TrackerApiClient, private readonly authorization: IssueAuthorizationService) {}
 
   private async getStatuses(): Promise<TrackerStatus[]> {
     const now = Date.now();
@@ -296,7 +297,7 @@ export class ManagerSummaryService {
     };
   }
 
-  async getSummaryByLogin(login: string): Promise<ManagerSummary> {
+  async getSummaryByLogin(login: string, userId: string): Promise<ManagerSummary> {
     const fields = [
       'summary',
       'status',
@@ -322,7 +323,9 @@ export class ManagerSummaryService {
     const issuesByQueue = await Promise.all(
       managerQueues.map(async (queue) => ({
         queue,
-        issues: await fetchAllIssuesByQueue(this.trackerClient, queue.key, fields)
+        issues: await this.authorization.filterReadableIssues(
+          userId, await fetchAllIssuesByQueue(this.trackerClient, queue.key, fields)
+        )
       }))
     );
 

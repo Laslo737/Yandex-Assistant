@@ -20,7 +20,9 @@ import {
   TrackerSearchIssuesResult,
   TrackerChangelogEntry,
   TrackerDetailedUser,
-  TrackerPaginationMeta
+  TrackerPaginationMeta,
+  TrackerQueueUserPermissions,
+  TrackerQueuePermissions
 } from './tracker.types';
 
 export class TrackerApiClient {
@@ -128,6 +130,24 @@ export class TrackerApiClient {
       method: 'GET',
       headers: this.headers()
     });
+  }
+
+  async getIssueAuthFields(issueIdOrKey: string): Promise<TrackerIssue> {
+    return this.getIssue(issueIdOrKey, ['key', 'queue', 'createdBy', 'assignee', 'followers', 'access', 'components']);
+  }
+
+  async getQueueUserPermissions(queueKey: string, userId: string): Promise<TrackerQueueUserPermissions> {
+    return fetchJson<TrackerQueueUserPermissions>(
+      this.buildUrl(`/queues/${encodeURIComponent(queueKey)}/permissions/users/${encodeURIComponent(userId)}`),
+      { method: 'GET', headers: this.headers() }
+    );
+  }
+
+  async getQueuePermissions(queueKey: string): Promise<TrackerQueuePermissions> {
+    return fetchJson<TrackerQueuePermissions>(
+      this.buildUrl(`/queues/${encodeURIComponent(queueKey)}/permissions`),
+      { method: 'GET', headers: this.headers() }
+    );
   }
 
   async getIssueTransitions(issueIdOrKey: string): Promise<TrackerTransition[]> {

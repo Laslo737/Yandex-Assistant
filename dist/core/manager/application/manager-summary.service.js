@@ -132,12 +132,14 @@ async function fetchAllIssuesByQueue(trackerClient, queueKey, fields) {
 }
 class ManagerSummaryService {
     trackerClient;
+    authorization;
     statusesCache = null;
     queuesCache = null;
     managerCheckCache = new Map();
     resolvedUserCache = new Map();
-    constructor(trackerClient) {
+    constructor(trackerClient, authorization) {
         this.trackerClient = trackerClient;
+        this.authorization = authorization;
     }
     async getStatuses() {
         const now = Date.now();
@@ -223,7 +225,7 @@ class ManagerSummaryService {
                 .filter(Boolean)
         };
     }
-    async getSummaryByLogin(login) {
+    async getSummaryByLogin(login, userId) {
         const fields = [
             'summary',
             'status',
@@ -243,7 +245,7 @@ class ManagerSummaryService {
         const doneStatusKeys = new Set(terminalStatuses.filter((status) => status.key).map((status) => String(status.key)));
         const issuesByQueue = await Promise.all(managerQueues.map(async (queue) => ({
             queue,
-            issues: await fetchAllIssuesByQueue(this.trackerClient, queue.key, fields)
+            issues: await this.authorization.filterReadableIssues(userId, await fetchAllIssuesByQueue(this.trackerClient, queue.key, fields))
         })));
         const allIssues = issuesByQueue.flatMap((item) => item.issues);
         const activeIssues = allIssues.filter((issue) => !isDone(issue, doneStatusIds, doneStatusKeys));

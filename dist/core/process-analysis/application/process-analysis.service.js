@@ -250,7 +250,7 @@ class ProcessAnalysisService {
     constructor(deps) {
         this.deps = deps;
     }
-    async getProcessAnalysisByLogin(login) {
+    async getProcessAnalysisByLogin(login, userId) {
         const isManager = await this.deps.managerSummaryService.isManagerLogin(login, true);
         if (!isManager) {
             throw new Error('Сценарий «Риски по очередям» сейчас доступен только руководителям / владельцам очередей.');
@@ -274,7 +274,7 @@ class ProcessAnalysisService {
         const doneStatusIds = new Set();
         const issuesByQueue = await Promise.all(queueKeys.map(async (queueKey) => ({
             queueKey,
-            issues: await fetchAllIssuesByQueue(this.deps.trackerClient, queueKey, fields)
+            issues: await this.deps.authorization.filterReadableIssues(userId, await fetchAllIssuesByQueue(this.deps.trackerClient, queueKey, fields))
         })));
         const activeByQueue = issuesByQueue.map(({ queueKey, issues }) => {
             const activeIssues = issues.filter((issue) => !isDone(issue, doneStatusIds, doneStatusKeys));

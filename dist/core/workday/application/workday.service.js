@@ -103,9 +103,11 @@ async function fetchAllIssuesByAssignee(trackerClient, assignee, fields) {
 }
 class WorkdayService {
     trackerClient;
+    authorization;
     statusesCache = null;
-    constructor(trackerClient) {
+    constructor(trackerClient, authorization) {
         this.trackerClient = trackerClient;
+        this.authorization = authorization;
     }
     async getStatuses() {
         const now = Date.now();
@@ -119,7 +121,7 @@ class WorkdayService {
         };
         return statuses;
     }
-    async getMyDayByLogin(login) {
+    async getMyDayByLogin(login, userId) {
         const fields = [
             'summary',
             'status',
@@ -141,7 +143,8 @@ class WorkdayService {
         let assignedIssues = [];
         let bestScore = -1;
         for (const candidate of assigneeCandidates) {
-            const issues = await fetchAllIssuesByAssignee(this.trackerClient, candidate, fields);
+            const issues = await this.authorization.filterReadableIssues(userId, (await fetchAllIssuesByAssignee(this.trackerClient, candidate, fields))
+                .filter((issue) => issue.assignee?.id === userId));
             const activeIssuesForCandidate = issues.filter((issue) => !isDone(issue, doneStatusIds, doneStatusKeys));
             const score = activeIssuesForCandidate.length * 100000 + issues.length;
             if (score > bestScore) {

@@ -1,4 +1,5 @@
 import { TrackerApiClient } from '../../../integrations/yandex-tracker/tracker.client';
+import { IssueAuthorizationService } from '../../authorization/application/issue-authorization.service';
 import {
   TrackerChangelogEntry,
   TrackerComment,
@@ -316,6 +317,7 @@ export class ChangesService {
     private readonly deps: {
       trackerClient: TrackerApiClient;
       managerSummaryService: ManagerSummaryService;
+      authorization: IssueAuthorizationService;
     }
   ) {}
 
@@ -375,7 +377,7 @@ export class ChangesService {
     }
   }
 
-  async getMyChangesByLogin(login: string, periodHours: number): Promise<ChangesSummary> {
+  async getMyChangesByLogin(login: string, periodHours: number, userId: string): Promise<ChangesSummary> {
     const fields = ['summary', 'statusType', 'assignee', 'updatedAt', 'lastCommentUpdatedAt', 'queue', 'deadline'];
     const candidates = buildAssigneeCandidates(login);
 
@@ -384,7 +386,10 @@ export class ChangesService {
     let bestScore = -1;
 
     for (const candidate of candidates) {
-      const issues = await fetchAllIssuesByAssignee(this.deps.trackerClient, candidate, fields);
+      const issues = await this.deps.authorization.filterReadableIssues(
+        userId, (await fetchAllIssuesByAssignee(this.deps.trackerClient, candidate, fields))
+          .filter((issue) => issue.assignee?.id === userId)
+      );
       const changed = issues.filter((issue) => isWithinHours(issue.updatedAt, periodHours) || isWithinHours(issue.lastCommentUpdatedAt, periodHours));
       const score = changed.length * 100000 + issues.length;
       if (score > bestScore) {
@@ -426,7 +431,7 @@ export class ChangesService {
     };
   }
 
-  async getTeamChangesByLogin(login: string, periodHours: number): Promise<ChangesSummary> {
+  async getTeamChangesByLogin(login: string, periodHours: number, userId: string): Promise<ChangesSummary> {
     if (!(await this.deps.managerSummaryService.isManagerLogin(login, true))) {
       throw new Error('Изменения по команде доступны только владельцам очередей / руководителям.');
     }
@@ -437,7 +442,9 @@ export class ChangesService {
 
     const issuesByQueue = await Promise.all(queues.map(async (queue) => ({
       queue,
-      issues: await fetchAllIssuesByQueue(this.deps.trackerClient, queue.key, fields)
+      issues: await this.deps.authorization.filterReadableIssues(
+        userId, await fetchAllIssuesByQueue(this.deps.trackerClient, queue.key, fields)
+      )
     })));
 
     const changedByQueue = issuesByQueue.map(({ queue, issues }) => ({

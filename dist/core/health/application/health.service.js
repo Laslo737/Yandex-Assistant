@@ -49,14 +49,14 @@ class HealthService {
     constructor(deps) {
         this.deps = deps;
     }
-    async getHealthByLogin(login) {
+    async getHealthByLogin(login, userId) {
         const isManager = await this.deps.managerSummaryService.isManagerLogin(login, true);
         if (!isManager) {
             throw new Error('Health check сейчас доступен только владельцам очередей / руководителям.');
         }
         const [summary, processAnalysis] = await Promise.all([
-            this.deps.managerSummaryService.getSummaryByLogin(login),
-            this.deps.processAnalysisService.getProcessAnalysisByLogin(login)
+            this.deps.managerSummaryService.getSummaryByLogin(login, userId),
+            this.deps.processAnalysisService.getProcessAnalysisByLogin(login, userId)
         ]);
         const problemRatio = summary.activeIssues > 0 ? summary.problematicCount / summary.activeIssues : 0;
         const overdueRatio = summary.activeIssues > 0 ? summary.overdueCount / summary.activeIssues : 0;

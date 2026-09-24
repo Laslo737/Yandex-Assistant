@@ -1,4 +1,5 @@
 import { TrackerApiClient } from '../../../integrations/yandex-tracker/tracker.client';
+import { IssueAuthorizationService } from '../../authorization/application/issue-authorization.service';
 import { TrackerIssue, TrackerStatus } from '../../../integrations/yandex-tracker/tracker.types';
 
 export interface UserDayTaskItem {
@@ -137,7 +138,7 @@ async function fetchAllIssuesByAssignee(
 export class WorkdayService {
   private statusesCache: { expiresAt: number; value: TrackerStatus[] } | null = null;
 
-  constructor(private readonly trackerClient: TrackerApiClient) {}
+  constructor(private readonly trackerClient: TrackerApiClient, private readonly authorization: IssueAuthorizationService) {}
 
   private async getStatuses(): Promise<TrackerStatus[]> {
     const now = Date.now();
@@ -154,7 +155,7 @@ export class WorkdayService {
     return statuses;
   }
 
-  async getMyDayByLogin(login: string): Promise<UserDaySummary> {
+  async getMyDayByLogin(login: string, userId: string): Promise<UserDaySummary> {
     const fields = [
       'summary',
       'status',
@@ -182,7 +183,10 @@ export class WorkdayService {
     let bestScore = -1;
 
     for (const candidate of assigneeCandidates) {
-      const issues = await fetchAllIssuesByAssignee(this.trackerClient, candidate, fields);
+      const issues = await this.authorization.filterReadableIssues(
+        userId, (await fetchAllIssuesByAssignee(this.trackerClient, candidate, fields))
+          .filter((issue) => issue.assignee?.id === userId)
+      );
       const activeIssuesForCandidate = issues.filter((issue) => !isDone(issue, doneStatusIds, doneStatusKeys));
       const score = activeIssuesForCandidate.length * 100000 + issues.length;
 

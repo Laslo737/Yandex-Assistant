@@ -94,6 +94,15 @@ class TrackerApiClient {
             headers: this.headers()
         });
     }
+    async getIssueAuthFields(issueIdOrKey) {
+        return this.getIssue(issueIdOrKey, ['key', 'queue', 'createdBy', 'assignee', 'followers', 'access', 'components']);
+    }
+    async getQueueUserPermissions(queueKey, userId) {
+        return (0, http_1.fetchJson)(this.buildUrl(`/queues/${encodeURIComponent(queueKey)}/permissions/users/${encodeURIComponent(userId)}`), { method: 'GET', headers: this.headers() });
+    }
+    async getQueuePermissions(queueKey) {
+        return (0, http_1.fetchJson)(this.buildUrl(`/queues/${encodeURIComponent(queueKey)}/permissions`), { method: 'GET', headers: this.headers() });
+    }
     async getIssueTransitions(issueIdOrKey) {
         return (0, http_1.fetchJson)(this.buildUrl(`/issues/${encodeURIComponent(issueIdOrKey)}/transitions`), {
             method: 'GET',

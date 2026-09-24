@@ -81,6 +81,8 @@ export interface TrackerIssue {
   assignee?: TrackerUser;
   previousStatusLastAssignee?: TrackerUser;
   followers?: TrackerUser[];
+  access?: TrackerUser[];
+  components?: TrackerReference[];
   sprint?: TrackerReference[];
   type?: TrackerReference;
   priority?: TrackerReference;
@@ -91,6 +93,23 @@ export interface TrackerIssue {
   project?: TrackerProjectInfo;
   sla?: TrackerIssueSla[];
   [key: string]: unknown;
+}
+
+export interface TrackerPermissionSubjects {
+  users?: TrackerUser[];
+  groups?: Array<{ id: string; display?: string }>;
+  roles?: Array<{ id: string; display?: string }>;
+}
+
+export interface TrackerQueueUserPermissions {
+  user: TrackerUser;
+  permissions: Partial<Record<'READ' | 'WRITE' | 'DENY' | 'CREATE' | 'GRANT', TrackerPermissionSubjects>>;
+}
+
+export interface TrackerQueuePermissions {
+  read?: TrackerPermissionSubjects;
+  write?: TrackerPermissionSubjects;
+  deny?: TrackerPermissionSubjects;
 }
 
 export interface TrackerIssueSla {

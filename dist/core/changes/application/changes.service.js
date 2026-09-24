@@ -286,14 +286,15 @@ class ChangesService {
             };
         }
     }
-    async getMyChangesByLogin(login, periodHours) {
+    async getMyChangesByLogin(login, periodHours, userId) {
         const fields = ['summary', 'statusType', 'assignee', 'updatedAt', 'lastCommentUpdatedAt', 'queue', 'deadline'];
         const candidates = buildAssigneeCandidates(login);
         let matchedAssigneeCandidate = candidates[0];
         let bestIssues = [];
         let bestScore = -1;
         for (const candidate of candidates) {
-            const issues = await fetchAllIssuesByAssignee(this.deps.trackerClient, candidate, fields);
+            const issues = await this.deps.authorization.filterReadableIssues(userId, (await fetchAllIssuesByAssignee(this.deps.trackerClient, candidate, fields))
+                .filter((issue) => issue.assignee?.id === userId));
             const changed = issues.filter((issue) => isWithinHours(issue.updatedAt, periodHours) || isWithinHours(issue.lastCommentUpdatedAt, periodHours));
             const score = changed.length * 100000 + issues.length;
             if (score > bestScore) {
@@ -331,7 +332,7 @@ class ChangesService {
             }))
         };
     }
-    async getTeamChangesByLogin(login, periodHours) {
+    async getTeamChangesByLogin(login, periodHours, userId) {
         if (!(await this.deps.managerSummaryService.isManagerLogin(login, true))) {
             throw new Error('Изменения по команде доступны только владельцам очередей / руководителям.');
         }
@@ -340,7 +341,7 @@ class ChangesService {
         const fields = ['summary', 'statusType', 'assignee', 'updatedAt', 'lastCommentUpdatedAt', 'queue', 'deadline'];
         const issuesByQueue = await Promise.all(queues.map(async (queue) => ({
             queue,
-            issues: await fetchAllIssuesByQueue(this.deps.trackerClient, queue.key, fields)
+            issues: await this.deps.authorization.filterReadableIssues(userId, await fetchAllIssuesByQueue(this.deps.trackerClient, queue.key, fields))
         })));
         const changedByQueue = issuesByQueue.map(({ queue, issues }) => ({
             queue,
