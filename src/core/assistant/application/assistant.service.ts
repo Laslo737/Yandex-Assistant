@@ -35,7 +35,7 @@ import {
 import { formatIssueAnalysis } from '../presentation/explain.formatters';
 import { formatIssueHelpResult } from '../presentation/issue-help.formatters';
 import { formatHealthCheck } from '../presentation/health.formatters';
-import { formatManagerSummary } from '../presentation/manager.formatters';
+import { formatManagerSummary, getManagerFocusIssueKeys } from '../presentation/manager.formatters';
 import { formatProcessAnalysis } from '../presentation/process-analysis.formatters';
 import {
   formatIssueBundlePreview,
@@ -143,11 +143,8 @@ function buildMyDayRows(issueKeys: string[]): Array<Array<{ text: string }>> {
 }
 
 function buildManagerSummaryRows(issueKeys: string[]): Array<Array<{ text: string }>> {
-  const analysisRows = pairButtons(
-    Array.from(new Set(issueKeys.filter(Boolean)))
-      .slice(0, 6)
-      .map((key) => ({ text: `🔎 Анализ ${key}` }))
-  );
+  const analysisRows = Array.from(new Set(issueKeys.filter(Boolean)))
+    .map((key) => [{ text: `🔎 Анализ ${key}` }]);
 
   return withMenuAtBottom([
     ...analysisRows,
@@ -344,7 +341,7 @@ export class AssistantService {
         const summary = await this.deps.managerSummaryService.getSummaryByLogin(login, userId);
         return this.reply(event, {
           text: formatManagerSummary(summary),
-          buttons: buildManagerSummaryRows(summary.topTasks.map((task) => task.key))
+          buttons: buildManagerSummaryRows(getManagerFocusIssueKeys(summary))
         });
       } catch (error) {
         return this.reply(event, {

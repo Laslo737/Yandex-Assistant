@@ -94,9 +94,8 @@ function buildMyDayRows(issueKeys) {
     ]);
 }
 function buildManagerSummaryRows(issueKeys) {
-    const analysisRows = pairButtons(Array.from(new Set(issueKeys.filter(Boolean)))
-        .slice(0, 6)
-        .map((key) => ({ text: `🔎 Анализ ${key}` })));
+    const analysisRows = Array.from(new Set(issueKeys.filter(Boolean)))
+        .map((key) => [{ text: `🔎 Анализ ${key}` }]);
     return withMenuAtBottom([
         ...analysisRows,
         PROCESS_ANALYSIS_ROW,
@@ -249,7 +248,7 @@ class AssistantService {
                 const summary = await this.deps.managerSummaryService.getSummaryByLogin(login, userId);
                 return this.reply(event, {
                     text: (0, manager_formatters_1.formatManagerSummary)(summary),
-                    buttons: buildManagerSummaryRows(summary.topTasks.map((task) => task.key))
+                    buttons: buildManagerSummaryRows((0, manager_formatters_1.getManagerFocusIssueKeys)(summary))
                 });
             }
             catch (error) {

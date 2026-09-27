@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AssistantService } from './assistant.service';
+import { getManagerFocusIssueKeys } from '../presentation/manager.formatters';
 import { YandexMessengerEvent, YandexMessengerReplyMessage } from '../../../interfaces/yandex-messenger/yandex-messenger.types';
 
 type Deps = ConstructorParameters<typeof AssistantService>[0];
@@ -11,7 +12,7 @@ function event(text: string, type = 'private'): YandexMessengerEvent {
     replyTarget: { login: 'test.user' }, metadata: { providerEventType: null }, raw: {}
   };
 }
-function setup(workdayResult?: unknown) {
+function setup(workdayResult?: unknown, managerResult?: unknown) {
   const replies: string[] = [];
   const messages: YandexMessengerReplyMessage[] = [];
   const calls: string[] = [];
@@ -24,7 +25,10 @@ function setup(workdayResult?: unknown) {
       resolveIdentity: async () => ({ id: 'id-1', trackerLogin: 'test.user' }),
       canReadIssue: async () => { calls.push('access'); return { allowed: false, reason: 'NO_PERMISSION' }; }
     },
-    managerSummaryService: { isManagerLogin: async () => false },
+    managerSummaryService: {
+      isManagerLogin: async () => false,
+      getSummaryByLogin: async () => managerResult
+    },
     changesService: {
       getMyChangesByLogin: async (_login: string, hours: number) => {
         calls.push(`my:${hours}`);
@@ -98,6 +102,33 @@ test('My day offers only three focus analyses, each on a full-width row', async 
   assert.deepEqual(analysisRows, ['IT-1', 'IT-2', 'IT-3'].map((key) => [{ text: `🔎 Анализ ${key}` }]));
   assert.doesNotMatch(message.text, /IT-4|IT-5/);
   assert.equal(message.buttons?.at(-1)?.[0]?.text, '📋 Меню');
+});
+
+test('My team analysis buttons follow the three actually visible queue focus tasks', async () => {
+  const task = (key: string) => ({ key, summary: key, overdue: false, stale: false });
+  const summary = {
+    manager: { display: 'Lead' }, queues: [{ key: 'IT' }], terminalStatusNames: [],
+    totalIssues: 5, activeIssues: 5, overdueCount: 0, staleCount: 0,
+    queueStats: [{ key: 'IT', total: 5, active: 5, overdue: 0, stale: 0,
+      topTasks: ['IT-1', 'IT-2', 'IT-3'].map(task) }],
+    topTasks: ['IT-5', 'IT-4', 'IT-3', 'IT-2', 'IT-1'].map(task)
+  };
+  const { service, messages } = setup(undefined, summary);
+  await service.handleEvent(event('👥 Моя команда'));
+  const message = messages[0];
+  const analysisRows = (message.buttons || []).filter((row) => row[0]?.text.startsWith('🔎 Анализ'));
+  assert.deepEqual(analysisRows, ['IT-1', 'IT-2', 'IT-3'].map((key) => [{ text: `🔎 Анализ ${key}` }]));
+  assert.doesNotMatch(message.text, /IT-4|IT-5/);
+  assert.equal(message.buttons?.at(-1)?.[0]?.text, '📋 Меню');
+});
+
+test('multi-queue analysis buttons follow the five-item overall focus', async () => {
+  const task = (key: string) => ({ key, overdue: false, stale: false });
+  const queue = (key: string) => ({ key, total: 5, active: 5, overdue: 0, stale: 0, topTasks: [task(`${key}-1`)] });
+  const summary = { queueStats: [queue('IT'), queue('HR')],
+    topTasks: ['IT-1', 'HR-1', 'IT-2', 'HR-2', 'IT-3'].map(task) };
+  assert.deepEqual(getManagerFocusIssueKeys(summary as Parameters<typeof getManagerFocusIssueKeys>[0]),
+    ['IT-1', 'HR-1', 'IT-2', 'HR-2', 'IT-3']);
 });
 
 test('changes period buttons route to the matching scope and interval, including emoji variants', async () => {

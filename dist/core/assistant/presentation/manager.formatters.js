@@ -1,8 +1,18 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.getManagerFocusIssueKeys = getManagerFocusIssueKeys;
 exports.formatManagerSummary = formatManagerSummary;
 const tracker_links_1 = require("../../../shared/utils/tracker-links");
 const tracker_query_links_1 = require("../../../shared/utils/tracker-query-links");
+const QUEUE_FOCUS_LIMIT = 3;
+const OVERALL_FOCUS_LIMIT = 5;
+// For a single queue the visible focus is queue.topTasks, NOT summary.topTasks.
+// Multi-queue view has a separate overall "Главный фокус" list.
+function getManagerFocusIssueKeys(summary) {
+    return summary.queueStats.length <= 1
+        ? (summary.queueStats[0]?.topTasks || []).slice(0, QUEUE_FOCUS_LIMIT).map((task) => task.key)
+        : summary.topTasks.slice(0, OVERALL_FOCUS_LIMIT).map((task) => task.key);
+}
 function formatTaskFlags(flagsSource) {
     const flags = [
         flagsSource.overdue ? '⏰ просрочена' : null,
@@ -32,7 +42,7 @@ function formatSingleQueueView(summary) {
     const queueKeys = summary.queues.map((item) => item.key);
     const queueLabel = queue ? `${queue.key}${queue.name ? ` — ${queue.name}` : ''}` : 'не определена';
     const focusLines = queue?.topTasks?.length
-        ? queue.topTasks.map((task, index) => `${index + 1}. ${(0, tracker_links_1.formatTrackerIssueLabel)(task.key)} — ${task.summary || 'без названия'}${task.assignee ? ` — ${task.assignee}` : ''}${formatTaskFlags(task)}`)
+        ? queue.topTasks.slice(0, QUEUE_FOCUS_LIMIT).map((task, index) => `${index + 1}. ${(0, tracker_links_1.formatTrackerIssueLabel)(task.key)} — ${task.summary || 'без названия'}${task.assignee ? ` — ${task.assignee}` : ''}${formatTaskFlags(task)}`)
         : ['1. Критичных активных задач не найдено'];
     return [
         summary.manager?.display ? `👥 Моя команда — ${summary.manager.display}` : '👥 Моя команда',
@@ -68,7 +78,7 @@ function formatMultiQueueView(summary) {
         })
         : ['Нет данных по очередям'];
     const topTasks = summary.topTasks.length
-        ? summary.topTasks.slice(0, 5).map((task, index) => `${index + 1}. ${(0, tracker_links_1.formatTrackerIssueLabel)(task.key)} — ${task.summary || 'без названия'}${task.queue ? ` [${task.queue}]` : ''}${task.assignee ? ` — ${task.assignee}` : ''}${formatTaskFlags(task)}`)
+        ? summary.topTasks.slice(0, OVERALL_FOCUS_LIMIT).map((task, index) => `${index + 1}. ${(0, tracker_links_1.formatTrackerIssueLabel)(task.key)} — ${task.summary || 'без названия'}${task.queue ? ` [${task.queue}]` : ''}${task.assignee ? ` — ${task.assignee}` : ''}${formatTaskFlags(task)}`)
         : ['1. Критичных активных задач не найдено'];
     return [
         summary.manager?.display ? `👥 Моя команда — ${summary.manager.display}` : '👥 Моя команда',

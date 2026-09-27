@@ -40,6 +40,17 @@ type ManagerFormatterSummary = {
   }>;
 };
 
+const QUEUE_FOCUS_LIMIT = 3;
+const OVERALL_FOCUS_LIMIT = 5;
+
+// For a single queue the visible focus is queue.topTasks, NOT summary.topTasks.
+// Multi-queue view has a separate overall "Главный фокус" list.
+export function getManagerFocusIssueKeys(summary: ManagerFormatterSummary): string[] {
+  return summary.queueStats.length <= 1
+    ? (summary.queueStats[0]?.topTasks || []).slice(0, QUEUE_FOCUS_LIMIT).map((task) => task.key)
+    : summary.topTasks.slice(0, OVERALL_FOCUS_LIMIT).map((task) => task.key);
+}
+
 function formatTaskFlags(flagsSource: {
   overdue: boolean;
   stale: boolean;
@@ -91,7 +102,7 @@ function formatSingleQueueView(summary: ManagerFormatterSummary): string {
   const queueKeys = summary.queues.map((item) => item.key);
   const queueLabel = queue ? `${queue.key}${queue.name ? ` — ${queue.name}` : ''}` : 'не определена';
   const focusLines = queue?.topTasks?.length
-    ? queue.topTasks.map((task, index) =>
+    ? queue.topTasks.slice(0, QUEUE_FOCUS_LIMIT).map((task, index) =>
         `${index + 1}. ${formatTrackerIssueLabel(task.key)} — ${task.summary || 'без названия'}${task.assignee ? ` — ${task.assignee}` : ''}${formatTaskFlags(task)}`
       )
     : ['1. Критичных активных задач не найдено'];
@@ -136,7 +147,7 @@ function formatMultiQueueView(summary: ManagerFormatterSummary): string {
     : ['Нет данных по очередям'];
 
   const topTasks = summary.topTasks.length
-    ? summary.topTasks.slice(0, 5).map((task, index) =>
+    ? summary.topTasks.slice(0, OVERALL_FOCUS_LIMIT).map((task, index) =>
         `${index + 1}. ${formatTrackerIssueLabel(task.key)} — ${task.summary || 'без названия'}${task.queue ? ` [${task.queue}]` : ''}${task.assignee ? ` — ${task.assignee}` : ''}${formatTaskFlags(task)}`
       )
     : ['1. Критичных активных задач не найдено'];
