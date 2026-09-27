@@ -25,6 +25,18 @@ function setup(workdayResult?: unknown) {
       canReadIssue: async () => { calls.push('access'); return { allowed: false, reason: 'NO_PERMISSION' }; }
     },
     managerSummaryService: { isManagerLogin: async () => false },
+    changesService: {
+      getMyChangesByLogin: async (_login: string, hours: number) => {
+        calls.push(`my:${hours}`);
+        return { scope: 'my', periodHours: hours, titleTarget: 'test.user',
+          changedIssuesCount: 0, statusChangedCount: 0, commentedCount: 0, overdueCount: 0, topTasks: [] };
+      },
+      getTeamChangesByLogin: async (_login: string, hours: number) => {
+        calls.push(`team:${hours}`);
+        return { scope: 'team', periodHours: hours, titleTarget: 'TEST',
+          changedIssuesCount: 0, statusChangedCount: 0, commentedCount: 0, overdueCount: 0, topTasks: [] };
+      }
+    },
     issueHelpService: {
       canHandleMessage: (text: string) => /IT-1/.test(text),
       handleMessage: async () => { calls.push('help'); throw new Error('must not run'); }
@@ -86,6 +98,19 @@ test('My day offers only three focus analyses, each on a full-width row', async 
   assert.deepEqual(analysisRows, ['IT-1', 'IT-2', 'IT-3'].map((key) => [{ text: `🔎 Анализ ${key}` }]));
   assert.doesNotMatch(message.text, /IT-4|IT-5/);
   assert.equal(message.buttons?.at(-1)?.[0]?.text, '📋 Меню');
+});
+
+test('changes period buttons route to the matching scope and interval, including emoji variants', async () => {
+  const { service, messages, calls } = setup();
+  for (const text of ['🕒 Мои 24ч', '🕒️ Мои 7д', '🕒 Команда 24ч', '🕒️ Команда 7д']) {
+    await service.handleEvent(event(text));
+  }
+  assert.deepEqual(calls, ['my:24', 'my:168', 'team:24', 'team:168']);
+  for (const message of messages) {
+    assert.match(message.text, /Что изменилось/);
+    assert.doesNotMatch(message.text, /Пока лучше всего/);
+    assert.equal(message.buttons?.at(-1)?.[0]?.text, '📋 Меню');
+  }
 });
 
 test('normal private responses have exactly one Menu button at the bottom', async () => {

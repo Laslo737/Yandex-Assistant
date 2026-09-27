@@ -278,7 +278,7 @@ class AssistantService {
                 buttons: buildChangesPeriodRows('team')
             });
         }
-        if (['изменения мои 24ч', 'изменения мои 24 часа', '🕒 мои 24ч'].includes(text) || ['изменения мои 7д', 'изменения мои 7 дней', '🕒 мои 7д'].includes(text)) {
+        if (['мои 24ч', 'изменения мои 24ч', 'изменения мои 24 часа'].includes(text) || ['мои 7д', 'изменения мои 7д', 'изменения мои 7 дней'].includes(text)) {
             const periodHours = text.includes('7') ? 24 * 7 : 24;
             if (!login) {
                 return this.reply(event, {
@@ -300,7 +300,7 @@ class AssistantService {
                 });
             }
         }
-        if (['изменения команда 24ч', 'изменения команда 24 часа', '🕒 команда 24ч'].includes(text) || ['изменения команда 7д', 'изменения команда 7 дней', '🕒 команда 7д'].includes(text)) {
+        if (['команда 24ч', 'изменения команда 24ч', 'изменения команда 24 часа'].includes(text) || ['команда 7д', 'изменения команда 7д', 'изменения команда 7 дней'].includes(text)) {
             const periodHours = text.includes('7') ? 24 * 7 : 24;
             if (!login) {
                 return this.reply(event, {
