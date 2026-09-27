@@ -57,9 +57,7 @@ function formatMyDaySummary(summary) {
         `• ${(0, tracker_query_links_1.formatMetricLink)(`Активных: ${summary.activeAssigned}`, (0, tracker_query_links_1.buildMyActiveIssuesUrl)(linkLogin, summary.terminalStatusNames))}`,
         `• ${(0, tracker_query_links_1.formatMetricLink)(`Просрочено: ${summary.overdueCount}`, (0, tracker_query_links_1.buildMyOverdueIssuesUrl)(linkLogin, summary.terminalStatusNames))}`,
         `• ${(0, tracker_query_links_1.formatMetricLink)(`Были обновления за 24ч: ${summary.recentlyUpdatedCount}`, (0, tracker_query_links_1.buildMyRecentlyUpdatedIssuesUrl)(linkLogin, summary.terminalStatusNames))}`,
-        summary.activeAssigned === 0
-            ? `• Диагностика: login=${summary.login}; candidates=${summary.assigneeCandidates.join(', ')}; matched=${summary.matchedAssigneeCandidate || 'none'}`
-            : null,
+        summary.activeAssigned === 0 ? `• Всего назначенных задач: ${summary.totalAssigned}` : null,
         '',
         '🎯 Фокус на сегодня',
         ...topLines

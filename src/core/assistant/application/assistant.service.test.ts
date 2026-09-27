@@ -104,6 +104,16 @@ test('My day offers only three focus analyses, each on a full-width row', async 
   assert.equal(message.buttons?.at(-1)?.[0]?.text, '📋 Меню');
 });
 
+test('empty My day shows assigned count instead of internal login diagnostics', async () => {
+  const { service, messages } = setup({ login: 'some.user@example.com',
+    assigneeCandidates: ['some.user@example.com', 'some.user'],
+    matchedAssigneeCandidate: 'some.user', terminalStatusNames: [], totalAssigned: 4,
+    activeAssigned: 0, overdueCount: 0, recentlyUpdatedCount: 0, topTasks: [] });
+  await service.handleEvent(event('Мой день'));
+  assert.match(messages[0].text, /Всего назначенных задач: 4/);
+  assert.doesNotMatch(messages[0].text, /Диагностика|candidates=|some\.user@example\.com/);
+});
+
 test('My team analysis buttons follow the three actually visible queue focus tasks', async () => {
   const task = (key: string) => ({ key, summary: key, overdue: false, stale: false });
   const summary = {

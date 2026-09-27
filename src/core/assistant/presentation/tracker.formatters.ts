@@ -97,9 +97,7 @@ export function formatMyDaySummary(summary: {
     `• ${formatMetricLink(`Активных: ${summary.activeAssigned}`, buildMyActiveIssuesUrl(linkLogin, summary.terminalStatusNames))}`,
     `• ${formatMetricLink(`Просрочено: ${summary.overdueCount}`, buildMyOverdueIssuesUrl(linkLogin, summary.terminalStatusNames))}`,
     `• ${formatMetricLink(`Были обновления за 24ч: ${summary.recentlyUpdatedCount}`, buildMyRecentlyUpdatedIssuesUrl(linkLogin, summary.terminalStatusNames))}`,
-    summary.activeAssigned === 0
-      ? `• Диагностика: login=${summary.login}; candidates=${summary.assigneeCandidates.join(', ')}; matched=${summary.matchedAssigneeCandidate || 'none'}`
-      : null,
+    summary.activeAssigned === 0 ? `• Всего назначенных задач: ${summary.totalAssigned}` : null,
     '',
     '🎯 Фокус на сегодня',
     ...topLines
