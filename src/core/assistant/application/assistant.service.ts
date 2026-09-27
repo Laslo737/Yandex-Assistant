@@ -40,6 +40,7 @@ import { formatProcessAnalysis } from '../presentation/process-analysis.formatte
 import {
   formatIssueBundlePreview,
   formatMyDaySummary,
+  MY_DAY_FOCUS_LIMIT,
   formatTrackerConnectionPreview
 } from '../presentation/tracker.formatters';
 
@@ -127,11 +128,11 @@ function buildChangesSummaryRows(
 }
 
 function buildMyDayRows(issueKeys: string[]): Array<Array<{ text: string }>> {
-  const analysisRows = pairButtons(
-    Array.from(new Set(issueKeys.filter(Boolean)))
-      .slice(0, 6)
-      .map((key) => ({ text: `🔎 Анализ ${key}` }))
-  );
+  // One analysis button per row: matches the three visible focus tasks and
+  // gives long issue keys the same horizontal space as the Menu button.
+  const analysisRows = Array.from(new Set(issueKeys.filter(Boolean)))
+    .slice(0, MY_DAY_FOCUS_LIMIT)
+    .map((key) => [{ text: `🔎 Анализ ${key}` }]);
 
   return withMenuAtBottom([
     ...analysisRows,

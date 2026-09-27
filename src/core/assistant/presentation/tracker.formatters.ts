@@ -56,6 +56,8 @@ export function formatIssueBundlePreview(preview: {
   ].filter(Boolean).join(' | ');
 }
 
+export const MY_DAY_FOCUS_LIMIT = 3;
+
 export function formatMyDaySummary(summary: {
   login: string;
   assigneeCandidates: string[];
@@ -73,7 +75,7 @@ export function formatMyDaySummary(summary: {
   }>;
 }): string {
   const topLines = summary.topTasks.length
-    ? summary.topTasks.slice(0, 3).map((task, index) => {
+    ? summary.topTasks.slice(0, MY_DAY_FOCUS_LIMIT).map((task, index) => {
         const flags = [task.overdue ? '⏰ просрочена' : null]
           .filter(Boolean)
           .join(', ');

@@ -1,5 +1,6 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.MY_DAY_FOCUS_LIMIT = void 0;
 exports.formatTrackerConnectionPreview = formatTrackerConnectionPreview;
 exports.formatIssueBundlePreview = formatIssueBundlePreview;
 exports.formatMyDaySummary = formatMyDaySummary;
@@ -35,9 +36,10 @@ function formatIssueBundlePreview(preview) {
         preview.latestIssueUpdateAt ? `updated: ${preview.latestIssueUpdateAt}` : null
     ].filter(Boolean).join(' | ');
 }
+exports.MY_DAY_FOCUS_LIMIT = 3;
 function formatMyDaySummary(summary) {
     const topLines = summary.topTasks.length
-        ? summary.topTasks.slice(0, 3).map((task, index) => {
+        ? summary.topTasks.slice(0, exports.MY_DAY_FOCUS_LIMIT).map((task, index) => {
             const flags = [task.overdue ? '⏰ просрочена' : null]
                 .filter(Boolean)
                 .join(', ');

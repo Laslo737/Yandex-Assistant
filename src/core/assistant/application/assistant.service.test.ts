@@ -11,7 +11,7 @@ function event(text: string, type = 'private'): YandexMessengerEvent {
     replyTarget: { login: 'test.user' }, metadata: { providerEventType: null }, raw: {}
   };
 }
-function setup() {
+function setup(workdayResult?: unknown) {
   const replies: string[] = [];
   const messages: YandexMessengerReplyMessage[] = [];
   const calls: string[] = [];
@@ -31,7 +31,11 @@ function setup() {
     },
     issueExplainService: { analyzeIssue: async () => { calls.push('analysis'); throw new Error('must not run'); } },
     trackerSyncService: { getIssueBundlePreview: async () => { calls.push('preview'); throw new Error('must not run'); } },
-    workdayService: { getMyDayByLogin: async () => { calls.push('day'); throw new Error('must not run'); } }
+    workdayService: { getMyDayByLogin: async () => {
+      if (workdayResult) return workdayResult;
+      calls.push('day');
+      throw new Error('must not run');
+    } }
   } as unknown as Deps;
   return { service: new AssistantService(deps), replies, messages, calls };
 }
@@ -68,6 +72,20 @@ test('issue preview cannot read a denied issue', async () => {
   assert.deepEqual(calls, ['access']);
   assert.match(replies[0], /Нет доступа/);
   assert.deepEqual(messages[0].buttons, [[{ text: '📋 Меню' }]]);
+});
+
+test('My day offers only three focus analyses, each on a full-width row', async () => {
+  const topTasks = ['IT-1', 'IT-2', 'IT-3', 'IT-4', 'IT-5']
+    .map((key) => ({ key, summary: key, overdue: false }));
+  const { service, messages } = setup({ login: 'test.user', assigneeCandidates: [],
+    matchedAssigneeCandidate: 'test.user', terminalStatusNames: [],
+    totalAssigned: 5, activeAssigned: 5, overdueCount: 0, recentlyUpdatedCount: 0, topTasks });
+  await service.handleEvent(event('Мой день'));
+  const message = messages[0];
+  const analysisRows = (message.buttons || []).filter((row) => row[0]?.text.startsWith('🔎 Анализ'));
+  assert.deepEqual(analysisRows, ['IT-1', 'IT-2', 'IT-3'].map((key) => [{ text: `🔎 Анализ ${key}` }]));
+  assert.doesNotMatch(message.text, /IT-4|IT-5/);
+  assert.equal(message.buttons?.at(-1)?.[0]?.text, '📋 Меню');
 });
 
 test('normal private responses have exactly one Menu button at the bottom', async () => {

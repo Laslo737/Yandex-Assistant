@@ -81,9 +81,11 @@ function buildChangesSummaryRows(issueKeys, scope, isManager) {
     ]);
 }
 function buildMyDayRows(issueKeys) {
-    const analysisRows = pairButtons(Array.from(new Set(issueKeys.filter(Boolean)))
-        .slice(0, 6)
-        .map((key) => ({ text: `🔎 Анализ ${key}` })));
+    // One analysis button per row: matches the three visible focus tasks and
+    // gives long issue keys the same horizontal space as the Menu button.
+    const analysisRows = Array.from(new Set(issueKeys.filter(Boolean)))
+        .slice(0, tracker_formatters_1.MY_DAY_FOCUS_LIMIT)
+        .map((key) => [{ text: `🔎 Анализ ${key}` }]);
     return withMenuAtBottom([
         ...analysisRows,
         ASK_AI_ROW,
