@@ -1,5 +1,7 @@
 # Безопасная выкладка admin/load release
 
+**После подтверждённого перехода на постоянный symlink** использовать [docs/stable-working-path.md](stable-working-path.md). Старый сценарий отката с одним удалением drop-in после этой миграции недостаточен: потребуется явно переключить ссылку на legacy. Правильная команда остаётся `bash /root/yassistant-backups/20261019-162724/rollback.sh`, её содержимое обновляет migration script. До миграции runbook ниже описывает исходную выкладку.
+
 ## Подтверждённая исходная точка
 
 - Production код: `843b921`, чистая ветка main, каталог `/opt/yandex-360-ai-assistant`.

@@ -53,6 +53,10 @@ systemctl start yassistant-analytics-backup.service
 - Это backup БД аналитики, не `.env`, nginx/systemd, исходников и не данных самого Tracker. Retention snapshots 14 дней может продлить фактическое хранение записей сверх 90 дней в основной БД; согласовать политику компании.
 - Integrity check не заменяет проверку полного восстановления: отдельно восстановить копию в изолированную среду с отключёнными интеграциями и проверить историю. Не заменять live SQLite при работающем боте, не забывать WAL/SHM.
 
+## Постоянный путь приложения (отдельная операция)
+
+`migrate-stable-path.sh` и `rollback-stable-path.sh` реализуют переход на один пользовательский путь `/opt/yandex-360-ai-assistant` без изменения runtime-кода/env/БД и с обновлением rollback. **Не запускать как часть установки backup timer.** Preflight отказывается менять неожиданное состояние; нормальный путь не рестартует бота и проверяет неизменность PID. Порядок/ограничения: [docs/stable-working-path.md](../docs/stable-working-path.md). Mock-тест отдельно: `node ops/test-stable-path.cjs`, shell syntax: `bash -n ops/migrate-stable-path.sh`, `bash -n ops/rollback-stable-path.sh`.
+
 ## Отключение расписания
 
 ```bash
