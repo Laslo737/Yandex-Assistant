@@ -2,7 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TrackerApiClient = void 0;
 const env_1 = require("../../config/env");
-const http_1 = require("../../shared/utils/http");
+const tracker_transport_1 = require("./tracker.transport");
 class TrackerApiClient {
     config = env_1.env.tracker;
     isConfigured() {
@@ -31,13 +31,13 @@ class TrackerApiClient {
         return url.toString();
     }
     async getQueues() {
-        return (0, http_1.fetchJson)(this.buildUrl('/queues/'), {
+        return (0, tracker_transport_1.fetchTrackerJson)(this.buildUrl('/queues/'), {
             method: 'GET',
             headers: this.headers()
         });
     }
     async getBoards() {
-        return (0, http_1.fetchJson)(this.buildUrl('/boards'), {
+        return (0, tracker_transport_1.fetchTrackerJson)(this.buildUrl('/boards'), {
             method: 'GET',
             headers: this.headers()
         });
@@ -47,7 +47,7 @@ class TrackerApiClient {
         const query = new URLSearchParams();
         if (expand?.length)
             query.set('expand', expand.join(','));
-        return (0, http_1.fetchJson)(this.buildUrl(`/users/${encodeURIComponent(normalized)}`, query), {
+        return (0, tracker_transport_1.fetchTrackerJson)(this.buildUrl(`/users/${encodeURIComponent(normalized)}`, query), {
             method: 'GET',
             headers: this.headers()
         });
@@ -62,7 +62,7 @@ class TrackerApiClient {
                 perPage: String(perPage),
                 page: String(page)
             });
-            const response = await (0, http_1.fetchJsonWithMeta)(this.buildUrl('/statuses', query), {
+            const response = await (0, tracker_transport_1.fetchTrackerJsonWithMeta)(this.buildUrl('/statuses', query), {
                 method: 'GET',
                 headers: this.headers()
             });
@@ -78,7 +78,7 @@ class TrackerApiClient {
         const query = new URLSearchParams({ perPage: String(perPage) });
         if (id !== undefined)
             query.set('id', String(id));
-        return (0, http_1.fetchJson)(this.buildUrl('/boards/_paginate', query), {
+        return (0, tracker_transport_1.fetchTrackerJson)(this.buildUrl('/boards/_paginate', query), {
             method: 'GET',
             headers: this.headers()
         });
@@ -89,7 +89,7 @@ class TrackerApiClient {
             query.set('fields', fields.join(','));
         if (expand?.length)
             query.set('expand', expand.join(','));
-        return (0, http_1.fetchJson)(this.buildUrl(`/issues/${encodeURIComponent(issueIdOrKey)}`, query), {
+        return (0, tracker_transport_1.fetchTrackerJson)(this.buildUrl(`/issues/${encodeURIComponent(issueIdOrKey)}`, query), {
             method: 'GET',
             headers: this.headers()
         });
@@ -98,13 +98,13 @@ class TrackerApiClient {
         return this.getIssue(issueIdOrKey, ['key', 'queue', 'createdBy', 'assignee', 'followers', 'access', 'components']);
     }
     async getQueueUserPermissions(queueKey, userId) {
-        return (0, http_1.fetchJson)(this.buildUrl(`/queues/${encodeURIComponent(queueKey)}/permissions/users/${encodeURIComponent(userId)}`), { method: 'GET', headers: this.headers() });
+        return (0, tracker_transport_1.fetchTrackerJson)(this.buildUrl(`/queues/${encodeURIComponent(queueKey)}/permissions/users/${encodeURIComponent(userId)}`), { method: 'GET', headers: this.headers() });
     }
     async getQueuePermissions(queueKey) {
-        return (0, http_1.fetchJson)(this.buildUrl(`/queues/${encodeURIComponent(queueKey)}/permissions`), { method: 'GET', headers: this.headers() });
+        return (0, tracker_transport_1.fetchTrackerJson)(this.buildUrl(`/queues/${encodeURIComponent(queueKey)}/permissions`), { method: 'GET', headers: this.headers() });
     }
     async getIssueTransitions(issueIdOrKey) {
-        return (0, http_1.fetchJson)(this.buildUrl(`/issues/${encodeURIComponent(issueIdOrKey)}/transitions`), {
+        return (0, tracker_transport_1.fetchTrackerJson)(this.buildUrl(`/issues/${encodeURIComponent(issueIdOrKey)}/transitions`), {
             method: 'GET',
             headers: this.headers()
         });
@@ -119,7 +119,7 @@ class TrackerApiClient {
             query.set('page', String(options.page));
         if (options.id !== undefined)
             query.set('id', String(options.id));
-        const response = await (0, http_1.fetchJsonWithMeta)(this.buildUrl(`/issues/${encodeURIComponent(issueIdOrKey)}/comments`, query), {
+        const response = await (0, tracker_transport_1.fetchTrackerJsonWithMeta)(this.buildUrl(`/issues/${encodeURIComponent(issueIdOrKey)}/comments`, query), {
             method: 'GET',
             headers: this.headers()
         });
@@ -129,7 +129,7 @@ class TrackerApiClient {
         };
     }
     async getIssueCommentsByUrl(nextUrl) {
-        const response = await (0, http_1.fetchJsonWithMeta)(nextUrl, {
+        const response = await (0, tracker_transport_1.fetchTrackerJsonWithMeta)(nextUrl, {
             method: 'GET',
             headers: this.headers()
         });
@@ -150,7 +150,7 @@ class TrackerApiClient {
             query.set('field', options.field);
         if (options.type)
             query.set('type', options.type);
-        const response = await (0, http_1.fetchJsonWithMeta)(this.buildUrl(`/issues/${encodeURIComponent(issueIdOrKey)}/changelog`, query), {
+        const response = await (0, tracker_transport_1.fetchTrackerJsonWithMeta)(this.buildUrl(`/issues/${encodeURIComponent(issueIdOrKey)}/changelog`, query), {
             method: 'GET',
             headers: this.headers()
         });
@@ -160,7 +160,7 @@ class TrackerApiClient {
         };
     }
     async getIssueChangelogByUrl(nextUrl) {
-        const response = await (0, http_1.fetchJsonWithMeta)(nextUrl, {
+        const response = await (0, tracker_transport_1.fetchTrackerJsonWithMeta)(nextUrl, {
             method: 'GET',
             headers: this.headers()
         });
@@ -189,7 +189,7 @@ class TrackerApiClient {
             query.set('scrollTTLMillis', String(options.scrollTTLMillis));
         if (options.scrollId)
             query.set('scrollId', options.scrollId);
-        const response = await (0, http_1.fetchJsonWithMeta)(this.buildUrl('/issues/_search', query), {
+        const response = await (0, tracker_transport_1.fetchTrackerJsonWithMeta)(this.buildUrl('/issues/_search', query), {
             method: 'POST',
             headers: this.headers(true),
             body: JSON.stringify(payload)
@@ -211,14 +211,14 @@ class TrackerApiClient {
         };
     }
     async countIssues(payload) {
-        return (0, http_1.fetchJson)(this.buildUrl('/issues/_count'), {
+        return (0, tracker_transport_1.fetchTrackerJson)(this.buildUrl('/issues/_count'), {
             method: 'POST',
             headers: this.headers(true),
             body: JSON.stringify(payload)
         });
     }
     async createIssueReport(payload) {
-        return (0, http_1.fetchJson)(this.buildUrl('/entities/report/'), {
+        return (0, tracker_transport_1.fetchTrackerJson)(this.buildUrl('/entities/report/'), {
             method: 'POST',
             headers: this.headers(true),
             body: JSON.stringify(payload)

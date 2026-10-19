@@ -1,6 +1,10 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.WorkdayService = void 0;
+const env_1 = require("../../../config/env");
+const expiring_cache_1 = require("../../../shared/utils/expiring-cache");
+const request_metrics_1 = require("../../analytics/request-metrics");
+const tracker_load_1 = require("../../../integrations/yandex-tracker/tracker-load");
 function toDate(value) {
     if (!value)
         return null;
@@ -104,24 +108,56 @@ async function fetchAllIssuesByAssignee(trackerClient, assignee, fields) {
 class WorkdayService {
     trackerClient;
     authorization;
+    loadOptions;
     statusesCache = null;
-    constructor(trackerClient, authorization) {
+    statusesInFlight;
+    cache;
+    constructor(trackerClient, authorization, loadOptions = env_1.env.workday) {
         this.trackerClient = trackerClient;
         this.authorization = authorization;
+        this.loadOptions = loadOptions;
+        if (!Number.isInteger(loadOptions.loadTimeoutMs) || loadOptions.loadTimeoutMs < 1 || loadOptions.loadTimeoutMs > 120000) {
+            throw new Error('Invalid My day timeout');
+        }
+        this.cache = new expiring_cache_1.ExpiringCache(loadOptions.cacheTtlMs, loadOptions.cacheMaxEntries, loadOptions.maxPending);
     }
     async getStatuses() {
         const now = Date.now();
         if (this.statusesCache && this.statusesCache.expiresAt > now) {
             return this.statusesCache.value;
         }
-        const statuses = await this.trackerClient.getStatuses();
-        this.statusesCache = {
-            value: statuses,
-            expiresAt: now + 4 * 60 * 60 * 1000
-        };
-        return statuses;
+        if (!this.statusesInFlight) {
+            this.statusesInFlight = Promise.resolve().then(() => this.trackerClient.getStatuses()).then((statuses) => {
+                this.statusesCache = { value: statuses, expiresAt: Date.now() + 4 * 60 * 60 * 1000 };
+                return statuses;
+            }).finally(() => { this.statusesInFlight = undefined; });
+        }
+        return this.statusesInFlight;
     }
     async getMyDayByLogin(login, userId, options = {}) {
+        // Only the explicitly simplified interactive mode is cached. Never serve it to ACL-aware callers.
+        if (!options.skipIssueAuthorization || !options.assigneeLogin || !userId) {
+            return this.loadMyDayByLogin(login, userId, options);
+        }
+        const key = JSON.stringify([userId, login.trim().toLowerCase(), options.assigneeLogin]);
+        const observed = { source: 'fresh' };
+        const startedAt = performance.now();
+        try {
+            const summary = await this.cache.get(key, () => (0, tracker_load_1.withTrackerDeadline)(this.loadOptions.loadTimeoutMs, () => this.loadMyDayByLogin(login, userId, options)), (value) => { observed.source = value; (0, request_metrics_1.dataSource)(value); });
+            // Keep cache and concurrent callers isolated from downstream mutation.
+            return structuredClone(summary);
+        }
+        catch (error) {
+            if (error instanceof expiring_cache_1.CacheBusyError)
+                throw new tracker_load_1.TrackerLoadError('MY_DAY_BUSY');
+            throw error;
+        }
+        finally {
+            if (observed.source === 'shared')
+                (0, request_metrics_1.dataSource)(observed.source, performance.now() - startedAt);
+        }
+    }
+    async loadMyDayByLogin(login, userId, options) {
         const fields = [
             'summary',
             'status',
@@ -175,6 +211,7 @@ class WorkdayService {
             activeAssigned: activeIssues.length,
             overdueCount,
             recentlyUpdatedCount,
+            dataLoadedAt: new Date().toISOString(),
             topTasks
         };
     }

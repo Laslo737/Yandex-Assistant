@@ -1,4 +1,6 @@
 import { env } from '../../../config/env';
+import { trackerLoadMessage } from '../../../integrations/yandex-tracker/tracker-load';
+import { AnalyticsService, safeErrorCode } from '../../analytics/analytics.service';
 import { IssueAuthorizationService } from '../../authorization/application/issue-authorization.service';
 import {
   YandexMessengerEvent,
@@ -134,12 +136,7 @@ function buildMyDayRows(issueKeys: string[]): Array<Array<{ text: string }>> {
     .slice(0, MY_DAY_FOCUS_LIMIT)
     .map((key) => [{ text: `🔎 Анализ ${key}` }]);
 
-  return withMenuAtBottom([
-    ...analysisRows,
-    ASK_AI_ROW,
-    [CHANGES_ROW[0]],
-    [{ text: '🗓 Мой день' }]
-  ]);
+  return withMenuAtBottom(analysisRows);
 }
 
 function buildManagerSummaryRows(issueKeys: string[]): Array<Array<{ text: string }>> {
@@ -149,7 +146,7 @@ function buildManagerSummaryRows(issueKeys: string[]): Array<Array<{ text: strin
   return withMenuAtBottom([
     ...analysisRows,
     PROCESS_ANALYSIS_ROW,
-    [{ text: '👥 Моя команда' }, { text: '🕒 Изменения: команда' }]
+    [{ text: '👥 Моя команда' }]
   ]);
 }
 
@@ -177,7 +174,7 @@ function buildHealthRows(issueKeys: string[]): Array<Array<{ text: string }>> {
   return withMenuAtBottom([
     ...analysisRows,
     PROCESS_ANALYSIS_ROW,
-    [{ text: '👥 Моя команда' }, { text: '🕒 Изменения: команда' }]
+    [{ text: '👥 Моя команда' }]
   ]);
 }
 
@@ -191,7 +188,7 @@ function buildProcessAnalysisRows(issueKeys: string[]): Array<Array<{ text: stri
   return withMenuAtBottom([
     ...analysisRows,
     MANAGER_BRIEFING_ROW,
-    [{ text: '👥 Моя команда' }, { text: '🕒 Изменения: команда' }]
+    [{ text: '👥 Моя команда' }]
   ]);
 }
 
@@ -245,6 +242,7 @@ export class AssistantService {
   constructor(
     private readonly deps: {
       sender: YandexMessengerSender;
+      analytics?: AnalyticsService;
       authorization: IssueAuthorizationService;
       queryService: QueryService;
       digestService: DigestService;
@@ -261,8 +259,22 @@ export class AssistantService {
   ) {}
 
   async handleEvent(event: YandexMessengerEvent) {
+    const handle = async () => {
+      try { return await this.processEvent(event); }
+      catch (error) {
+        const message = trackerLoadMessage(error);
+        if (!message) throw error;
+        this.deps.analytics?.outcome('service_error', safeErrorCode(error, 'SCENARIO_FAILED'));
+        return this.reply(event, { text: message });
+      }
+    };
+    return this.deps.analytics ? this.deps.analytics.track(event, handle) : handle();
+  }
+
+  private async processEvent(event: YandexMessengerEvent) {
     if (event.type === 'system') return;
     if (event.chat?.type !== 'private') {
+      this.deps.analytics?.outcome('group_rejected');
       return this.reply(event, { text: 'Данные Tracker доступны только в личном чате с ботом.' });
     }
 
@@ -279,6 +291,7 @@ export class AssistantService {
     // Self-diagnostic: reveal only the login supplied by the verified Messenger webhook,
     // only to the sender in their private chat. Does not accept a login from message text.
     if (text === 'whoami' || text === 'мой логин') {
+      this.deps.analytics?.scenario('diagnostics');
       return this.reply(event, { text: login
         ? `Ваш login из события Yandex Messenger: ${login}`
         : 'Yandex Messenger не передал login в этом событии.' });
@@ -286,22 +299,24 @@ export class AssistantService {
     // Resolve identity for every data request; never infer it from message text.
     const identity = login ? await this.deps.authorization.resolveIdentity(login) : undefined;
     if (!identity) {
+      this.deps.analytics?.outcome('identity_failed', 'IDENTITY_NOT_CONFIRMED');
       return this.reply(event, { text: 'Не удалось подтвердить вашу учетную запись в Tracker. Попробуйте позже.' });
     }
     const userId = identity.id;
     const buttons = await this.getMainButtons(event);
 
     if (['start', 'help', 'menu', 'меню', 'помощь', '📋 меню'].includes(text)) {
+      this.deps.analytics?.scenario('menu');
       const isManager = login ? await this.deps.managerSummaryService.isManagerLogin(login).catch(() => false) : false;
       return this.reply(event, { text: formatWelcomeMessage(isManager), buttons });
     }
 
     if (['vision', 'идея', 'видение'].includes(text)) {
-      return this.reply(event, { text: formatVisionMessage(), buttons });
+      return this.reply(event, { text: this.withScenario('menu', formatVisionMessage()), buttons });
     }
 
     if (['roadmap', 'план'].includes(text)) {
-      return this.reply(event, { text: formatRoadmapMessage(), buttons });
+      return this.reply(event, { text: this.withScenario('menu', formatRoadmapMessage()), buttons });
     }
 
     if (['мой день', '🗓 мой день', 'что у меня сегодня', 'мои задачи', 'my day'].includes(text)) {
@@ -313,6 +328,7 @@ export class AssistantService {
       }
 
       try {
+        this.deps.analytics?.scenario('my_day');
         const summary = await this.deps.workdayService.getMyDayByLogin(login, userId, {
           skipIssueAuthorization: true,
           assigneeLogin: identity.trackerLogin
@@ -323,7 +339,7 @@ export class AssistantService {
         });
       } catch (error) {
         return this.reply(event, {
-          text: formatFriendlyError('Не удалось собрать модуль "Мой день".', error),
+          text: this.friendlyError('Не удалось собрать модуль "Мой день".', error),
           buttons
         });
       }
@@ -338,6 +354,7 @@ export class AssistantService {
       }
 
       try {
+        this.deps.analytics?.scenario('team');
         const summary = await this.deps.managerSummaryService.getSummaryByLogin(login, userId);
         return this.reply(event, {
           text: formatManagerSummary(summary),
@@ -345,7 +362,7 @@ export class AssistantService {
         });
       } catch (error) {
         return this.reply(event, {
-          text: formatFriendlyError('Не удалось собрать модуль "Моя команда".', error),
+          text: this.friendlyError('Не удалось собрать модуль "Моя команда".', error),
           buttons
         });
       }
@@ -354,6 +371,7 @@ export class AssistantService {
     if (['что изменилось', 'изменения', '🕒 изменения'].includes(text)) {
       const isManager = login ? await this.deps.managerSummaryService.isManagerLogin(login).catch(() => false) : false;
 
+      this.deps.analytics?.scenario('changes');
       return this.reply(event, {
         text: formatChangesEntryPoint(isManager),
         buttons: buildChangesEntryRows(isManager)
@@ -362,14 +380,14 @@ export class AssistantService {
 
     if (['изменения: мои задачи', 'изменения мои задачи', '🕒 изменения: мои задачи'].includes(text)) {
       return this.reply(event, {
-        text: formatChangesPeriodPicker('my'),
+        text: this.withScenario('changes', formatChangesPeriodPicker('my')),
         buttons: buildChangesPeriodRows('my')
       });
     }
 
     if (['изменения: моя команда', 'изменения моя команда', 'изменения: команда', '🕒 изменения: команда'].includes(text)) {
       return this.reply(event, {
-        text: formatChangesPeriodPicker('team'),
+        text: this.withScenario('changes', formatChangesPeriodPicker('team')),
         buttons: buildChangesPeriodRows('team')
       });
     }
@@ -385,6 +403,7 @@ export class AssistantService {
       }
 
       try {
+        this.deps.analytics?.scenario('changes');
         const summary = await this.deps.changesService.getMyChangesByLogin(login, periodHours, userId, identity.trackerLogin);
         return this.reply(event, {
           text: formatChangesSummary(summary),
@@ -392,7 +411,7 @@ export class AssistantService {
         });
       } catch (error) {
         return this.reply(event, {
-          text: formatFriendlyError('Не удалось собрать изменения по вашим задачам.', error),
+          text: this.friendlyError('Не удалось собрать изменения по вашим задачам.', error),
           buttons
         });
       }
@@ -409,6 +428,7 @@ export class AssistantService {
       }
 
       try {
+        this.deps.analytics?.scenario('changes');
         const summary = await this.deps.changesService.getTeamChangesByLogin(login, periodHours, userId);
         return this.reply(event, {
           text: formatChangesSummary(summary),
@@ -416,7 +436,7 @@ export class AssistantService {
         });
       } catch (error) {
         return this.reply(event, {
-          text: formatFriendlyError('Не удалось собрать изменения по команде.', error),
+          text: this.friendlyError('Не удалось собрать изменения по команде.', error),
           buttons
         });
       }
@@ -431,6 +451,7 @@ export class AssistantService {
       }
 
       try {
+        this.deps.analytics?.scenario('digest');
         const digest = await this.deps.digestService.getOnDemandDigestByLogin(login, userId, identity.trackerLogin);
         return this.reply(event, {
           text: formatCombinedDigest({
@@ -444,7 +465,7 @@ export class AssistantService {
         });
       } catch (error) {
         return this.reply(event, {
-          text: formatFriendlyError('Не удалось собрать дайджест.', error),
+          text: this.friendlyError('Не удалось собрать дайджест.', error),
           buttons
         });
       }
@@ -452,12 +473,13 @@ export class AssistantService {
 
     if (['анализ задачи', '🔍 анализ задачи', '🆘 помощь с задачей', 'помощь с задачей'].includes(text)) {
       return this.reply(event, {
-        text: this.deps.issueHelpService.getEntryPrompt(),
+        text: this.withScenario('issue_help', this.deps.issueHelpService.getEntryPrompt()),
         buttons
       });
     }
 
     if (this.deps.issueHelpService.canHandleMessage(event.text.trim())) {
+      this.deps.analytics?.scenario('issue_help');
       const issueKey = extractTrackerIssueKey(event.text);
       if (!issueKey || !(await this.checkIssueAccess(event, userId, issueKey))) return;
       try {
@@ -468,7 +490,7 @@ export class AssistantService {
         });
       } catch (error) {
         return this.reply(event, {
-          text: formatFriendlyError('Не удалось помочь с задачей.', error),
+          text: this.friendlyError('Не удалось помочь с задачей.', error),
           buttons
         });
       }
@@ -483,6 +505,7 @@ export class AssistantService {
       }
 
       try {
+        this.deps.analytics?.scenario('risks');
         const analysis = await this.deps.processAnalysisService.getProcessAnalysisByLogin(login, userId);
         return this.reply(event, {
           text: formatProcessAnalysis(analysis),
@@ -490,7 +513,7 @@ export class AssistantService {
         });
       } catch (error) {
         return this.reply(event, {
-          text: formatFriendlyError('Не удалось собрать риски по очередям.', error),
+          text: this.friendlyError('Не удалось собрать риски по очередям.', error),
           buttons
         });
       }
@@ -505,6 +528,7 @@ export class AssistantService {
       }
 
       try {
+        this.deps.analytics?.scenario('health');
         const health = await this.deps.healthService.getHealthByLogin(login, userId);
         return this.reply(event, {
           text: formatHealthCheck(health),
@@ -512,7 +536,7 @@ export class AssistantService {
         });
       } catch (error) {
         return this.reply(event, {
-          text: formatFriendlyError('Не удалось собрать состояние команды.', error),
+          text: this.friendlyError('Не удалось собрать состояние команды.', error),
           buttons
         });
       }
@@ -525,6 +549,7 @@ export class AssistantService {
       text.startsWith('анализ задачи ') ||
       text.startsWith('помощь с задачей ')
     ) {
+      this.deps.analytics?.scenario('issue_analysis');
       const explicitIssueKey = extractTrackerIssueKey(event.text);
       let issueIdOrKey = explicitIssueKey || event.text.trim().split(/\s+/).slice(1).join(' ').trim();
 
@@ -562,13 +587,14 @@ export class AssistantService {
         });
       } catch (error) {
         return this.reply(event, {
-          text: formatFriendlyError(`Не удалось выполнить анализ задачи ${issueIdOrKey}.`, error),
+          text: this.friendlyError(`Не удалось выполнить анализ задачи ${issueIdOrKey}.`, error),
           buttons
         });
       }
     }
 
     if (['status', 'статус'].includes(text)) {
+      this.deps.analytics?.scenario('diagnostics');
       const trackerStatus = this.deps.trackerSyncService.getStatus();
       return this.reply(event, {
         text: [
@@ -583,6 +609,7 @@ export class AssistantService {
     }
 
     if (['tracker', 'трекер'].includes(text)) {
+      this.deps.analytics?.scenario('diagnostics');
       return this.reply(event, {
         text: [
           'Чтобы начать интеграцию с Tracker, нужны:',
@@ -593,6 +620,7 @@ export class AssistantService {
     }
 
     if (['tracker preview', 'tracker status', 'трекер статус'].includes(text)) {
+      this.deps.analytics?.scenario('diagnostics');
       const preview = await this.deps.trackerSyncService.getConnectionPreview();
       return this.reply(event, {
         text: formatTrackerConnectionPreview(preview),
@@ -601,10 +629,12 @@ export class AssistantService {
     }
 
     if (text.startsWith('comments debug ') || text.startsWith('issue debug ') || text.startsWith('bundle debug ')) {
+      this.deps.analytics?.scenario('diagnostics');
       return this.reply(event, { text: 'Отладочные команды недоступны.' });
     }
 
     if (text.startsWith('issue ') || text.startsWith('bundle ') || text.startsWith('задача ')) {
+      this.deps.analytics?.scenario('preview');
       const issueIdOrKey = event.text.trim().split(/\s+/).slice(1).join(' ').trim();
 
       if (!issueIdOrKey) {
@@ -623,7 +653,7 @@ export class AssistantService {
         });
       } catch (error) {
         return this.reply(event, {
-          text: formatFriendlyError(`Не удалось получить preview по задаче ${issueIdOrKey}.`, error),
+          text: this.friendlyError(`Не удалось получить preview по задаче ${issueIdOrKey}.`, error),
           buttons
         });
       }
@@ -631,7 +661,7 @@ export class AssistantService {
 
     if (['спросить ai', '🤖 спросить ai', 'ai', 'assistant', 'ассистент'].includes(text)) {
       return this.reply(event, {
-        text: this.deps.queryService.getMvpAnswerStub(),
+        text: this.withScenario('ai_stub', this.deps.queryService.getMvpAnswerStub()),
         buttons
       });
     }
@@ -645,6 +675,7 @@ export class AssistantService {
   private async checkIssueAccess(event: YandexMessengerEvent, userId: string, issueKey: string): Promise<boolean> {
     const decision = await this.deps.authorization.canReadIssue(userId, issueKey);
     if (!decision.allowed) {
+      this.deps.analytics?.outcome(decision.reason === 'AUTH_CHECK_FAILED' ? 'service_error' : 'access_denied', decision.reason);
       await this.reply(event, {
         text: decision.reason === 'AUTH_CHECK_FAILED'
           ? 'Не удалось проверить доступ к задаче. Попробуйте позже.'
@@ -681,11 +712,28 @@ export class AssistantService {
     return withMenuAtBottom([...analysisRows, ...baseButtons]);
   }
 
+  private withScenario(scenario: Parameters<AnalyticsService['scenario']>[0], text: string): string {
+    this.deps.analytics?.scenario(scenario);
+    return text;
+  }
+
+  private friendlyError(title: string, error: unknown): string {
+    this.deps.analytics?.outcome('service_error', safeErrorCode(error, 'SCENARIO_FAILED'));
+    const loadMessage = trackerLoadMessage(error);
+    return loadMessage ? `${title}\n${loadMessage}` : formatFriendlyError(title, error);
+  }
+
   private async reply(event: YandexMessengerEvent, message: YandexMessengerReplyMessage) {
     // Every private response (including access errors) must offer a way back.
-    // Do not fetch manager status just to render a fallback button.
-    return this.deps.sender.reply(event, event.chat?.type === 'private'
-      ? { ...message, buttons: withMenuAtBottom(message.buttons || []) }
-      : message);
+    try {
+      const result = await this.deps.sender.reply(event, event.chat?.type === 'private'
+        ? { ...message, buttons: withMenuAtBottom(message.buttons || []) }
+        : message);
+      this.deps.analytics?.replied();
+      return result;
+    } catch (error) {
+      this.deps.analytics?.outcome('delivery_error', safeErrorCode(error, 'MESSENGER_SEND_FAILED'));
+      throw error;
+    }
   }
 }

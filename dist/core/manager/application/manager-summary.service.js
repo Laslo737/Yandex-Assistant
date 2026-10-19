@@ -135,6 +135,8 @@ class ManagerSummaryService {
     authorization;
     statusesCache = null;
     queuesCache = null;
+    statusesInFlight;
+    queuesInFlight;
     managerCheckCache = new Map();
     resolvedUserCache = new Map();
     constructor(trackerClient, authorization) {
@@ -146,24 +148,26 @@ class ManagerSummaryService {
         if (this.statusesCache && this.statusesCache.expiresAt > now) {
             return this.statusesCache.value;
         }
-        const statuses = await this.trackerClient.getStatuses();
-        this.statusesCache = {
-            value: statuses,
-            expiresAt: now + 4 * 60 * 60 * 1000
-        };
-        return statuses;
+        if (!this.statusesInFlight) {
+            this.statusesInFlight = Promise.resolve().then(() => this.trackerClient.getStatuses()).then((statuses) => {
+                this.statusesCache = { value: statuses, expiresAt: Date.now() + 4 * 60 * 60 * 1000 };
+                return statuses;
+            }).finally(() => { this.statusesInFlight = undefined; });
+        }
+        return this.statusesInFlight;
     }
     async getQueues(forceRefresh = false) {
         const now = Date.now();
         if (!forceRefresh && this.queuesCache && this.queuesCache.expiresAt > now) {
             return this.queuesCache.value;
         }
-        const queues = await this.trackerClient.getQueues();
-        this.queuesCache = {
-            value: queues,
-            expiresAt: now + 5 * 60 * 1000
-        };
-        return queues;
+        if (!this.queuesInFlight) {
+            this.queuesInFlight = Promise.resolve().then(() => this.trackerClient.getQueues()).then((queues) => {
+                this.queuesCache = { value: queues, expiresAt: Date.now() + 5 * 60 * 1000 };
+                return queues;
+            }).finally(() => { this.queuesInFlight = undefined; });
+        }
+        return this.queuesInFlight;
     }
     async resolveUserByLogin(login) {
         const normalized = login.trim();

@@ -2,6 +2,8 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.AssistantService = void 0;
 const env_1 = require("../../../config/env");
+const tracker_load_1 = require("../../../integrations/yandex-tracker/tracker-load");
+const analytics_service_1 = require("../../analytics/analytics.service");
 const tracker_links_1 = require("../../../shared/utils/tracker-links");
 const assistant_formatters_1 = require("../presentation/assistant.formatters");
 const changes_formatters_1 = require("../presentation/changes.formatters");
@@ -86,12 +88,7 @@ function buildMyDayRows(issueKeys) {
     const analysisRows = Array.from(new Set(issueKeys.filter(Boolean)))
         .slice(0, tracker_formatters_1.MY_DAY_FOCUS_LIMIT)
         .map((key) => [{ text: `🔎 Анализ ${key}` }]);
-    return withMenuAtBottom([
-        ...analysisRows,
-        ASK_AI_ROW,
-        [CHANGES_ROW[0]],
-        [{ text: '🗓 Мой день' }]
-    ]);
+    return withMenuAtBottom(analysisRows);
 }
 function buildManagerSummaryRows(issueKeys) {
     const analysisRows = Array.from(new Set(issueKeys.filter(Boolean)))
@@ -99,7 +96,7 @@ function buildManagerSummaryRows(issueKeys) {
     return withMenuAtBottom([
         ...analysisRows,
         PROCESS_ANALYSIS_ROW,
-        [{ text: '👥 Моя команда' }, { text: '🕒 Изменения: команда' }]
+        [{ text: '👥 Моя команда' }]
     ]);
 }
 function buildDigestRows(issueKeys, _isManager) {
@@ -119,7 +116,7 @@ function buildHealthRows(issueKeys) {
     return withMenuAtBottom([
         ...analysisRows,
         PROCESS_ANALYSIS_ROW,
-        [{ text: '👥 Моя команда' }, { text: '🕒 Изменения: команда' }]
+        [{ text: '👥 Моя команда' }]
     ]);
 }
 function buildProcessAnalysisRows(issueKeys) {
@@ -129,7 +126,7 @@ function buildProcessAnalysisRows(issueKeys) {
     return withMenuAtBottom([
         ...analysisRows,
         MANAGER_BRIEFING_ROW,
-        [{ text: '👥 Моя команда' }, { text: '🕒 Изменения: команда' }]
+        [{ text: '👥 Моя команда' }]
     ]);
 }
 function buildIssueAnalysisRows(issueKey) {
@@ -176,9 +173,25 @@ class AssistantService {
         this.deps = deps;
     }
     async handleEvent(event) {
+        const handle = async () => {
+            try {
+                return await this.processEvent(event);
+            }
+            catch (error) {
+                const message = (0, tracker_load_1.trackerLoadMessage)(error);
+                if (!message)
+                    throw error;
+                this.deps.analytics?.outcome('service_error', (0, analytics_service_1.safeErrorCode)(error, 'SCENARIO_FAILED'));
+                return this.reply(event, { text: message });
+            }
+        };
+        return this.deps.analytics ? this.deps.analytics.track(event, handle) : handle();
+    }
+    async processEvent(event) {
         if (event.type === 'system')
             return;
         if (event.chat?.type !== 'private') {
+            this.deps.analytics?.outcome('group_rejected');
             return this.reply(event, { text: 'Данные Tracker доступны только в личном чате с ботом.' });
         }
         const login = event.from?.login?.trim();
@@ -192,6 +205,7 @@ class AssistantService {
         // Self-diagnostic: reveal only the login supplied by the verified Messenger webhook,
         // only to the sender in their private chat. Does not accept a login from message text.
         if (text === 'whoami' || text === 'мой логин') {
+            this.deps.analytics?.scenario('diagnostics');
             return this.reply(event, { text: login
                     ? `Ваш login из события Yandex Messenger: ${login}`
                     : 'Yandex Messenger не передал login в этом событии.' });
@@ -199,19 +213,21 @@ class AssistantService {
         // Resolve identity for every data request; never infer it from message text.
         const identity = login ? await this.deps.authorization.resolveIdentity(login) : undefined;
         if (!identity) {
+            this.deps.analytics?.outcome('identity_failed', 'IDENTITY_NOT_CONFIRMED');
             return this.reply(event, { text: 'Не удалось подтвердить вашу учетную запись в Tracker. Попробуйте позже.' });
         }
         const userId = identity.id;
         const buttons = await this.getMainButtons(event);
         if (['start', 'help', 'menu', 'меню', 'помощь', '📋 меню'].includes(text)) {
+            this.deps.analytics?.scenario('menu');
             const isManager = login ? await this.deps.managerSummaryService.isManagerLogin(login).catch(() => false) : false;
             return this.reply(event, { text: (0, assistant_formatters_1.formatWelcomeMessage)(isManager), buttons });
         }
         if (['vision', 'идея', 'видение'].includes(text)) {
-            return this.reply(event, { text: (0, assistant_formatters_1.formatVisionMessage)(), buttons });
+            return this.reply(event, { text: this.withScenario('menu', (0, assistant_formatters_1.formatVisionMessage)()), buttons });
         }
         if (['roadmap', 'план'].includes(text)) {
-            return this.reply(event, { text: (0, assistant_formatters_1.formatRoadmapMessage)(), buttons });
+            return this.reply(event, { text: this.withScenario('menu', (0, assistant_formatters_1.formatRoadmapMessage)()), buttons });
         }
         if (['мой день', '🗓 мой день', 'что у меня сегодня', 'мои задачи', 'my day'].includes(text)) {
             if (!login) {
@@ -221,6 +237,7 @@ class AssistantService {
                 });
             }
             try {
+                this.deps.analytics?.scenario('my_day');
                 const summary = await this.deps.workdayService.getMyDayByLogin(login, userId, {
                     skipIssueAuthorization: true,
                     assigneeLogin: identity.trackerLogin
@@ -232,7 +249,7 @@ class AssistantService {
             }
             catch (error) {
                 return this.reply(event, {
-                    text: formatFriendlyError('Не удалось собрать модуль "Мой день".', error),
+                    text: this.friendlyError('Не удалось собрать модуль "Мой день".', error),
                     buttons
                 });
             }
@@ -245,6 +262,7 @@ class AssistantService {
                 });
             }
             try {
+                this.deps.analytics?.scenario('team');
                 const summary = await this.deps.managerSummaryService.getSummaryByLogin(login, userId);
                 return this.reply(event, {
                     text: (0, manager_formatters_1.formatManagerSummary)(summary),
@@ -253,13 +271,14 @@ class AssistantService {
             }
             catch (error) {
                 return this.reply(event, {
-                    text: formatFriendlyError('Не удалось собрать модуль "Моя команда".', error),
+                    text: this.friendlyError('Не удалось собрать модуль "Моя команда".', error),
                     buttons
                 });
             }
         }
         if (['что изменилось', 'изменения', '🕒 изменения'].includes(text)) {
             const isManager = login ? await this.deps.managerSummaryService.isManagerLogin(login).catch(() => false) : false;
+            this.deps.analytics?.scenario('changes');
             return this.reply(event, {
                 text: (0, changes_formatters_1.formatChangesEntryPoint)(isManager),
                 buttons: buildChangesEntryRows(isManager)
@@ -267,13 +286,13 @@ class AssistantService {
         }
         if (['изменения: мои задачи', 'изменения мои задачи', '🕒 изменения: мои задачи'].includes(text)) {
             return this.reply(event, {
-                text: (0, changes_formatters_1.formatChangesPeriodPicker)('my'),
+                text: this.withScenario('changes', (0, changes_formatters_1.formatChangesPeriodPicker)('my')),
                 buttons: buildChangesPeriodRows('my')
             });
         }
         if (['изменения: моя команда', 'изменения моя команда', 'изменения: команда', '🕒 изменения: команда'].includes(text)) {
             return this.reply(event, {
-                text: (0, changes_formatters_1.formatChangesPeriodPicker)('team'),
+                text: this.withScenario('changes', (0, changes_formatters_1.formatChangesPeriodPicker)('team')),
                 buttons: buildChangesPeriodRows('team')
             });
         }
@@ -286,6 +305,7 @@ class AssistantService {
                 });
             }
             try {
+                this.deps.analytics?.scenario('changes');
                 const summary = await this.deps.changesService.getMyChangesByLogin(login, periodHours, userId, identity.trackerLogin);
                 return this.reply(event, {
                     text: (0, changes_formatters_1.formatChangesSummary)(summary),
@@ -294,7 +314,7 @@ class AssistantService {
             }
             catch (error) {
                 return this.reply(event, {
-                    text: formatFriendlyError('Не удалось собрать изменения по вашим задачам.', error),
+                    text: this.friendlyError('Не удалось собрать изменения по вашим задачам.', error),
                     buttons
                 });
             }
@@ -308,6 +328,7 @@ class AssistantService {
                 });
             }
             try {
+                this.deps.analytics?.scenario('changes');
                 const summary = await this.deps.changesService.getTeamChangesByLogin(login, periodHours, userId);
                 return this.reply(event, {
                     text: (0, changes_formatters_1.formatChangesSummary)(summary),
@@ -316,7 +337,7 @@ class AssistantService {
             }
             catch (error) {
                 return this.reply(event, {
-                    text: formatFriendlyError('Не удалось собрать изменения по команде.', error),
+                    text: this.friendlyError('Не удалось собрать изменения по команде.', error),
                     buttons
                 });
             }
@@ -329,6 +350,7 @@ class AssistantService {
                 });
             }
             try {
+                this.deps.analytics?.scenario('digest');
                 const digest = await this.deps.digestService.getOnDemandDigestByLogin(login, userId, identity.trackerLogin);
                 return this.reply(event, {
                     text: (0, digest_formatters_1.formatCombinedDigest)({
@@ -343,18 +365,19 @@ class AssistantService {
             }
             catch (error) {
                 return this.reply(event, {
-                    text: formatFriendlyError('Не удалось собрать дайджест.', error),
+                    text: this.friendlyError('Не удалось собрать дайджест.', error),
                     buttons
                 });
             }
         }
         if (['анализ задачи', '🔍 анализ задачи', '🆘 помощь с задачей', 'помощь с задачей'].includes(text)) {
             return this.reply(event, {
-                text: this.deps.issueHelpService.getEntryPrompt(),
+                text: this.withScenario('issue_help', this.deps.issueHelpService.getEntryPrompt()),
                 buttons
             });
         }
         if (this.deps.issueHelpService.canHandleMessage(event.text.trim())) {
+            this.deps.analytics?.scenario('issue_help');
             const issueKey = (0, tracker_links_1.extractTrackerIssueKey)(event.text);
             if (!issueKey || !(await this.checkIssueAccess(event, userId, issueKey)))
                 return;
@@ -367,7 +390,7 @@ class AssistantService {
             }
             catch (error) {
                 return this.reply(event, {
-                    text: formatFriendlyError('Не удалось помочь с задачей.', error),
+                    text: this.friendlyError('Не удалось помочь с задачей.', error),
                     buttons
                 });
             }
@@ -380,6 +403,7 @@ class AssistantService {
                 });
             }
             try {
+                this.deps.analytics?.scenario('risks');
                 const analysis = await this.deps.processAnalysisService.getProcessAnalysisByLogin(login, userId);
                 return this.reply(event, {
                     text: (0, process_analysis_formatters_1.formatProcessAnalysis)(analysis),
@@ -388,7 +412,7 @@ class AssistantService {
             }
             catch (error) {
                 return this.reply(event, {
-                    text: formatFriendlyError('Не удалось собрать риски по очередям.', error),
+                    text: this.friendlyError('Не удалось собрать риски по очередям.', error),
                     buttons
                 });
             }
@@ -401,6 +425,7 @@ class AssistantService {
                 });
             }
             try {
+                this.deps.analytics?.scenario('health');
                 const health = await this.deps.healthService.getHealthByLogin(login, userId);
                 return this.reply(event, {
                     text: (0, health_formatters_1.formatHealthCheck)(health),
@@ -409,7 +434,7 @@ class AssistantService {
             }
             catch (error) {
                 return this.reply(event, {
-                    text: formatFriendlyError('Не удалось собрать состояние команды.', error),
+                    text: this.friendlyError('Не удалось собрать состояние команды.', error),
                     buttons
                 });
             }
@@ -419,6 +444,7 @@ class AssistantService {
             text.startsWith('analysis ') ||
             text.startsWith('анализ задачи ') ||
             text.startsWith('помощь с задачей ')) {
+            this.deps.analytics?.scenario('issue_analysis');
             const explicitIssueKey = (0, tracker_links_1.extractTrackerIssueKey)(event.text);
             let issueIdOrKey = explicitIssueKey || event.text.trim().split(/\s+/).slice(1).join(' ').trim();
             if (!explicitIssueKey && text.startsWith('анализ задачи ')) {
@@ -453,12 +479,13 @@ class AssistantService {
             }
             catch (error) {
                 return this.reply(event, {
-                    text: formatFriendlyError(`Не удалось выполнить анализ задачи ${issueIdOrKey}.`, error),
+                    text: this.friendlyError(`Не удалось выполнить анализ задачи ${issueIdOrKey}.`, error),
                     buttons
                 });
             }
         }
         if (['status', 'статус'].includes(text)) {
+            this.deps.analytics?.scenario('diagnostics');
             const trackerStatus = this.deps.trackerSyncService.getStatus();
             return this.reply(event, {
                 text: [
@@ -472,6 +499,7 @@ class AssistantService {
             });
         }
         if (['tracker', 'трекер'].includes(text)) {
+            this.deps.analytics?.scenario('diagnostics');
             return this.reply(event, {
                 text: [
                     'Чтобы начать интеграцию с Tracker, нужны:',
@@ -481,6 +509,7 @@ class AssistantService {
             });
         }
         if (['tracker preview', 'tracker status', 'трекер статус'].includes(text)) {
+            this.deps.analytics?.scenario('diagnostics');
             const preview = await this.deps.trackerSyncService.getConnectionPreview();
             return this.reply(event, {
                 text: (0, tracker_formatters_1.formatTrackerConnectionPreview)(preview),
@@ -488,9 +517,11 @@ class AssistantService {
             });
         }
         if (text.startsWith('comments debug ') || text.startsWith('issue debug ') || text.startsWith('bundle debug ')) {
+            this.deps.analytics?.scenario('diagnostics');
             return this.reply(event, { text: 'Отладочные команды недоступны.' });
         }
         if (text.startsWith('issue ') || text.startsWith('bundle ') || text.startsWith('задача ')) {
+            this.deps.analytics?.scenario('preview');
             const issueIdOrKey = event.text.trim().split(/\s+/).slice(1).join(' ').trim();
             if (!issueIdOrKey) {
                 return this.reply(event, {
@@ -509,14 +540,14 @@ class AssistantService {
             }
             catch (error) {
                 return this.reply(event, {
-                    text: formatFriendlyError(`Не удалось получить preview по задаче ${issueIdOrKey}.`, error),
+                    text: this.friendlyError(`Не удалось получить preview по задаче ${issueIdOrKey}.`, error),
                     buttons
                 });
             }
         }
         if (['спросить ai', '🤖 спросить ai', 'ai', 'assistant', 'ассистент'].includes(text)) {
             return this.reply(event, {
-                text: this.deps.queryService.getMvpAnswerStub(),
+                text: this.withScenario('ai_stub', this.deps.queryService.getMvpAnswerStub()),
                 buttons
             });
         }
@@ -528,6 +559,7 @@ class AssistantService {
     async checkIssueAccess(event, userId, issueKey) {
         const decision = await this.deps.authorization.canReadIssue(userId, issueKey);
         if (!decision.allowed) {
+            this.deps.analytics?.outcome(decision.reason === 'AUTH_CHECK_FAILED' ? 'service_error' : 'access_denied', decision.reason);
             await this.reply(event, {
                 text: decision.reason === 'AUTH_CHECK_FAILED'
                     ? 'Не удалось проверить доступ к задаче. Попробуйте позже.'
@@ -555,12 +587,28 @@ class AssistantService {
             .map((key) => ({ text: `🔎 Анализ ${key}` })));
         return withMenuAtBottom([...analysisRows, ...baseButtons]);
     }
+    withScenario(scenario, text) {
+        this.deps.analytics?.scenario(scenario);
+        return text;
+    }
+    friendlyError(title, error) {
+        this.deps.analytics?.outcome('service_error', (0, analytics_service_1.safeErrorCode)(error, 'SCENARIO_FAILED'));
+        const loadMessage = (0, tracker_load_1.trackerLoadMessage)(error);
+        return loadMessage ? `${title}\n${loadMessage}` : formatFriendlyError(title, error);
+    }
     async reply(event, message) {
         // Every private response (including access errors) must offer a way back.
-        // Do not fetch manager status just to render a fallback button.
-        return this.deps.sender.reply(event, event.chat?.type === 'private'
-            ? { ...message, buttons: withMenuAtBottom(message.buttons || []) }
-            : message);
+        try {
+            const result = await this.deps.sender.reply(event, event.chat?.type === 'private'
+                ? { ...message, buttons: withMenuAtBottom(message.buttons || []) }
+                : message);
+            this.deps.analytics?.replied();
+            return result;
+        }
+        catch (error) {
+            this.deps.analytics?.outcome('delivery_error', (0, analytics_service_1.safeErrorCode)(error, 'MESSENGER_SEND_FAILED'));
+            throw error;
+        }
     }
 }
 exports.AssistantService = AssistantService;

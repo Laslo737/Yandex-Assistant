@@ -60,6 +60,9 @@ function formatMyDaySummary(summary) {
         summary.activeAssigned === 0 ? `• Всего назначенных задач: ${summary.totalAssigned}` : null,
         '',
         '🎯 Фокус на сегодня',
-        ...topLines
+        ...topLines,
+        ...(summary.dataLoadedAt ? ['', `🕒 Данные загружены: ${new Intl.DateTimeFormat('ru-RU', {
+                timeZone: 'UTC', dateStyle: 'short', timeStyle: 'medium'
+            }).format(new Date(summary.dataLoadedAt))} UTC`] : [])
     ].filter((line) => line !== null).join('\n');
 }

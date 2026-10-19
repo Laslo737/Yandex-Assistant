@@ -1,5 +1,6 @@
 import { TrackerApiClient } from '../../../integrations/yandex-tracker/tracker.client';
 import { env } from '../../../config/env';
+import { TrackerLoadError, TrackerHttpError } from '../../../integrations/yandex-tracker/tracker-load';
 import {
   TrackerIssue, TrackerPermissionSubjects, TrackerQueuePermissions, TrackerQueueUserPermissions
 } from '../../../integrations/yandex-tracker/tracker.types';
@@ -93,6 +94,7 @@ export function evaluateIssueAccess(
 
 export class IssueAuthorizationService {
   private readonly identities = new Map<string, { value: ResolvedTrackerIdentity; expiresAt: number }>();
+  private readonly identitiesInFlight = new Map<string, Promise<ResolvedTrackerIdentity | undefined>>();
 
   constructor(private readonly tracker: TrackerApiClient) {}
 
@@ -125,6 +127,15 @@ export class IssueAuthorizationService {
     if (!messengerLogin) return undefined;
     const cached = this.identities.get(messengerLogin);
     if (cached && cached.expiresAt > Date.now()) return cached.value;
+    const pending = this.identitiesInFlight.get(messengerLogin);
+    if (pending) return pending;
+    if (this.identitiesInFlight.size >= 200) throw new TrackerLoadError('TRACKER_QUEUE_FULL');
+    const promise = this.loadIdentity(messengerLogin).finally(() => { this.identitiesInFlight.delete(messengerLogin); });
+    this.identitiesInFlight.set(messengerLogin, promise);
+    return promise;
+  }
+
+  private async loadIdentity(messengerLogin: string): Promise<ResolvedTrackerIdentity | undefined> {
     const domain = env.yandexMessenger.loginDomain?.trim().toLowerCase().replace(/^@/, '');
     const suffix = domain ? `@${domain}` : '';
     // Never strip an arbitrary email domain: only the explicitly configured organization domain.
@@ -149,8 +160,10 @@ export class IssueAuthorizationService {
         if (!ids.length || ids.some((id) => !/^\d+$/.test(id) || id !== ids[0])) continue;
         const identity = { id: ids[0], trackerLogin: trackerLogin || candidate };
         this.identities.set(messengerLogin, { value: identity, expiresAt: Date.now() + 5 * 60 * 1000 });
+        while (this.identities.size > 512) this.identities.delete(this.identities.keys().next().value!);
         return identity;
-      } catch {
+      } catch (error) {
+        if (error instanceof TrackerLoadError || (error instanceof TrackerHttpError && error.status === 429)) throw error;
         // The Tracker API may accept only the short login. Try it only for the configured domain.
       }
     }

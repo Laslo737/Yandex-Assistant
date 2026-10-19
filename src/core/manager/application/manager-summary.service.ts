@@ -187,6 +187,8 @@ async function fetchAllIssuesByQueue(
 export class ManagerSummaryService {
   private statusesCache: { expiresAt: number; value: TrackerStatus[] } | null = null;
   private queuesCache: { expiresAt: number; value: TrackerQueue[] } | null = null;
+  private statusesInFlight?: Promise<TrackerStatus[]>;
+  private queuesInFlight?: Promise<TrackerQueue[]>;
   private managerCheckCache = new Map<string, { expiresAt: number; value: boolean }>();
   private resolvedUserCache = new Map<string, { expiresAt: number; value: TrackerDetailedUser }>();
 
@@ -198,13 +200,13 @@ export class ManagerSummaryService {
       return this.statusesCache.value;
     }
 
-    const statuses = await this.trackerClient.getStatuses();
-    this.statusesCache = {
-      value: statuses,
-      expiresAt: now + 4 * 60 * 60 * 1000
-    };
-
-    return statuses;
+    if (!this.statusesInFlight) {
+      this.statusesInFlight = Promise.resolve().then(() => this.trackerClient.getStatuses()).then((statuses) => {
+        this.statusesCache = { value: statuses, expiresAt: Date.now() + 4 * 60 * 60 * 1000 };
+        return statuses;
+      }).finally(() => { this.statusesInFlight = undefined; });
+    }
+    return this.statusesInFlight;
   }
 
   private async getQueues(forceRefresh = false): Promise<TrackerQueue[]> {
@@ -213,13 +215,13 @@ export class ManagerSummaryService {
       return this.queuesCache.value;
     }
 
-    const queues = await this.trackerClient.getQueues();
-    this.queuesCache = {
-      value: queues,
-      expiresAt: now + 5 * 60 * 1000
-    };
-
-    return queues;
+    if (!this.queuesInFlight) {
+      this.queuesInFlight = Promise.resolve().then(() => this.trackerClient.getQueues()).then((queues) => {
+        this.queuesCache = { value: queues, expiresAt: Date.now() + 5 * 60 * 1000 };
+        return queues;
+      }).finally(() => { this.queuesInFlight = undefined; });
+    }
+    return this.queuesInFlight;
   }
 
   private async resolveUserByLogin(login: string): Promise<TrackerDetailedUser> {

@@ -5,6 +5,9 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createApp = createApp;
 const express_1 = __importDefault(require("express"));
+const analytics_store_1 = require("./core/analytics/analytics.store");
+const analytics_service_1 = require("./core/analytics/analytics.service");
+const admin_router_1 = require("./interfaces/admin/admin.router");
 const env_1 = require("./config/env");
 const health_router_1 = require("./interfaces/http/health.router");
 const short_link_router_1 = require("./interfaces/http/short-link.router");
@@ -31,7 +34,27 @@ const issue_help_service_1 = require("./core/issue-help/application/issue-help.s
 const issue_authorization_service_1 = require("./core/authorization/application/issue-authorization.service");
 function createApp() {
     const app = (0, express_1.default)();
+    app.disable('x-powered-by');
     app.use(express_1.default.json({ limit: '1mb' }));
+    let analytics;
+    if (env_1.env.admin.enabled) {
+        if (!env_1.env.admin.username || env_1.env.admin.username.includes(':') || env_1.env.admin.password.length < 5) {
+            throw new Error('Configure ADMIN_USERNAME and an ADMIN_PASSWORD of at least 5 characters');
+        }
+        if (env_1.env.app.nodeEnv === 'production' && !env_1.env.app.publicBaseUrl?.startsWith('https://')) {
+            throw new Error('Admin production deployment requires HTTPS APP_PUBLIC_BASE_URL through nginx');
+        }
+        try {
+            const store = new analytics_store_1.AnalyticsStore(env_1.env.admin.databasePath, env_1.env.admin.retentionDays);
+            analytics = new analytics_service_1.AnalyticsService(store);
+            app.use('/admin', (0, admin_router_1.createAdminRouter)(store, env_1.env.admin));
+        }
+        catch {
+            // Telemetry must never prevent the bot from starting when its database is unavailable.
+            console.error('analytics.initialization_failed');
+            app.use('/admin', (_req, res) => { res.status(503).send('Аналитика временно недоступна.'); });
+        }
+    }
     const trackerApiClient = new tracker_client_1.TrackerApiClient();
     const authorization = new issue_authorization_service_1.IssueAuthorizationService(trackerApiClient);
     const trackerSyncService = new tracker_sync_service_1.TrackerSyncService(trackerApiClient);
@@ -74,6 +97,7 @@ function createApp() {
         const messengerSender = new yandex_messenger_sender_1.YandexMessengerSender(messengerClient);
         const assistantService = new assistant_service_1.AssistantService({
             sender: messengerSender,
+            analytics,
             authorization,
             queryService,
             digestService,

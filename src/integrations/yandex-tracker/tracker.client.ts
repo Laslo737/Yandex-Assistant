@@ -1,5 +1,5 @@
 import { env } from '../../config/env';
-import { fetchJson, fetchJsonWithMeta } from '../../shared/utils/http';
+import { fetchTrackerJson as fetchJson, fetchTrackerJsonWithMeta as fetchJsonWithMeta } from './tracker.transport';
 import {
   TrackerBoard,
   TrackerComment,

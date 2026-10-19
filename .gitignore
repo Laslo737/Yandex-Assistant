@@ -3,3 +3,10 @@ node_modules/
 npm-debug.log*
 .DS_Store
 *.zip
+# Local analytics databases and SQLite WAL/SHM/backup files
+data/
+*.sqlite
+*.sqlite-*
+*.sqlite.*
+*.db
+*.db-*

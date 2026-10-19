@@ -23,6 +23,13 @@ export const env = {
     debugCommands: getBoolean('ENABLE_DEBUG_COMMANDS', 'SHOW_DEBUG_COMMANDS'),
     publicBaseUrl: get('APP_PUBLIC_BASE_URL') as string
   },
+  admin: {
+    enabled: getBoolean('ENABLE_ADMIN'),
+    databasePath: get('ANALYTICS_DB_PATH', './data/analytics.sqlite') as string,
+    retentionDays: Number(get('ANALYTICS_RETENTION_DAYS', '90')),
+    username: get('ADMIN_USERNAME', 'admin') as string,
+    password: get('ADMIN_PASSWORD', '') as string
+  },
   yandexMessenger: {
     enabled: getBoolean('ENABLE_YANDEX_MESSENGER', 'ENABLE_YANDEX'),
     apiBaseUrl: get('YANDEX_API_BASE_URL') as string,
@@ -38,7 +45,22 @@ export const env = {
     webBaseUrl: get('YANDEX_TRACKER_WEB_BASE_URL') as string,
     oauthToken: get('YANDEX_TRACKER_OAUTH_TOKEN'),
     orgId: get('YANDEX_TRACKER_ORG_ID'),
-    cloudOrgId: get('YANDEX_TRACKER_CLOUD_ORG_ID')
+    cloudOrgId: get('YANDEX_TRACKER_CLOUD_ORG_ID'),
+    load: {
+      concurrency: Number(get('TRACKER_CONCURRENCY', '4')),
+      minIntervalMs: Number(get('TRACKER_MIN_INTERVAL_MS', '150')),
+      maxQueue: Number(get('TRACKER_MAX_QUEUE', '200')),
+      queueTimeoutMs: Number(get('TRACKER_QUEUE_TIMEOUT_MS', '15000')),
+      requestTimeoutMs: Number(get('TRACKER_REQUEST_TIMEOUT_MS', '12000')),
+      operationTimeoutMs: Number(get('TRACKER_OPERATION_TIMEOUT_MS', '30000')),
+      maxRetries: Number(get('TRACKER_MAX_RETRIES', '2'))
+    }
+  },
+  workday: {
+    cacheTtlMs: Number(get('MY_DAY_CACHE_TTL_MS', '60000')),
+    cacheMaxEntries: Number(get('MY_DAY_CACHE_MAX_ENTRIES', '512')),
+    maxPending: Number(get('MY_DAY_MAX_PENDING', '100')),
+    loadTimeoutMs: Number(get('MY_DAY_LOAD_TIMEOUT_MS', '45000'))
   },
   llm: {
     provider: get('LLM_PROVIDER', 'mock') as string,

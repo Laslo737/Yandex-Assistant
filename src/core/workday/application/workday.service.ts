@@ -1,3 +1,7 @@
+import { env } from '../../../config/env';
+import { CacheBusyError, ExpiringCache, CacheSource } from '../../../shared/utils/expiring-cache';
+import { dataSource } from '../../analytics/request-metrics';
+import { TrackerLoadError, withTrackerDeadline } from '../../../integrations/yandex-tracker/tracker-load';
 import { TrackerApiClient } from '../../../integrations/yandex-tracker/tracker.client';
 import { IssueAuthorizationService } from '../../authorization/application/issue-authorization.service';
 import { TrackerIssue, TrackerStatus } from '../../../integrations/yandex-tracker/tracker.types';
@@ -23,6 +27,7 @@ export interface UserDaySummary {
   overdueCount: number;
   recentlyUpdatedCount: number;
   topTasks: UserDayTaskItem[];
+  dataLoadedAt?: string;
 }
 
 function toDate(value?: string): Date | null {
@@ -137,8 +142,16 @@ async function fetchAllIssuesByAssignee(
 
 export class WorkdayService {
   private statusesCache: { expiresAt: number; value: TrackerStatus[] } | null = null;
+  private statusesInFlight?: Promise<TrackerStatus[]>;
+  private readonly cache: ExpiringCache<UserDaySummary>;
 
-  constructor(private readonly trackerClient: TrackerApiClient, private readonly authorization: IssueAuthorizationService) {}
+  constructor(private readonly trackerClient: TrackerApiClient, private readonly authorization: IssueAuthorizationService,
+    private readonly loadOptions = env.workday) {
+    if (!Number.isInteger(loadOptions.loadTimeoutMs) || loadOptions.loadTimeoutMs < 1 || loadOptions.loadTimeoutMs > 120000) {
+      throw new Error('Invalid My day timeout');
+    }
+    this.cache = new ExpiringCache(loadOptions.cacheTtlMs, loadOptions.cacheMaxEntries, loadOptions.maxPending);
+  }
 
   private async getStatuses(): Promise<TrackerStatus[]> {
     const now = Date.now();
@@ -146,19 +159,44 @@ export class WorkdayService {
       return this.statusesCache.value;
     }
 
-    const statuses = await this.trackerClient.getStatuses();
-    this.statusesCache = {
-      value: statuses,
-      expiresAt: now + 4 * 60 * 60 * 1000
-    };
-
-    return statuses;
+    if (!this.statusesInFlight) {
+      this.statusesInFlight = Promise.resolve().then(() => this.trackerClient.getStatuses()).then((statuses) => {
+        this.statusesCache = { value: statuses, expiresAt: Date.now() + 4 * 60 * 60 * 1000 };
+        return statuses;
+      }).finally(() => { this.statusesInFlight = undefined; });
+    }
+    return this.statusesInFlight;
   }
 
   async getMyDayByLogin(
     login: string,
     userId: string,
     options: { skipIssueAuthorization?: boolean; assigneeLogin?: string } = {}
+  ): Promise<UserDaySummary> {
+    // Only the explicitly simplified interactive mode is cached. Never serve it to ACL-aware callers.
+    if (!options.skipIssueAuthorization || !options.assigneeLogin || !userId) {
+      return this.loadMyDayByLogin(login, userId, options);
+    }
+    const key = JSON.stringify([userId, login.trim().toLowerCase(), options.assigneeLogin]);
+    const observed = { source: 'fresh' as CacheSource };
+    const startedAt = performance.now();
+    try {
+      const summary = await this.cache.get(key, () => withTrackerDeadline(this.loadOptions.loadTimeoutMs,
+        () => this.loadMyDayByLogin(login, userId, options)), (value) => { observed.source = value; dataSource(value); });
+      // Keep cache and concurrent callers isolated from downstream mutation.
+      return structuredClone(summary);
+    } catch (error) {
+      if (error instanceof CacheBusyError) throw new TrackerLoadError('MY_DAY_BUSY');
+      throw error;
+    } finally {
+      if (observed.source === 'shared') dataSource(observed.source, performance.now() - startedAt);
+    }
+  }
+
+  private async loadMyDayByLogin(
+    login: string,
+    userId: string,
+    options: { skipIssueAuthorization?: boolean; assigneeLogin?: string }
   ): Promise<UserDaySummary> {
     const fields = [
       'summary',
@@ -224,6 +262,7 @@ export class WorkdayService {
       activeAssigned: activeIssues.length,
       overdueCount,
       recentlyUpdatedCount,
+      dataLoadedAt: new Date().toISOString(),
       topTasks
     };
   }

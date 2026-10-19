@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.IssueAuthorizationService = void 0;
 exports.evaluateIssueAccess = evaluateIssueAccess;
 const env_1 = require("../../../config/env");
+const tracker_load_1 = require("../../../integrations/yandex-tracker/tracker-load");
 function subjects(value, field) {
     if (!value)
         return false;
@@ -87,6 +88,7 @@ function evaluateIssueAccess(issue, userId, userPermissions, queuePermissions) {
 class IssueAuthorizationService {
     tracker;
     identities = new Map();
+    identitiesInFlight = new Map();
     constructor(tracker) {
         this.tracker = tracker;
     }
@@ -121,6 +123,16 @@ class IssueAuthorizationService {
         const cached = this.identities.get(messengerLogin);
         if (cached && cached.expiresAt > Date.now())
             return cached.value;
+        const pending = this.identitiesInFlight.get(messengerLogin);
+        if (pending)
+            return pending;
+        if (this.identitiesInFlight.size >= 200)
+            throw new tracker_load_1.TrackerLoadError('TRACKER_QUEUE_FULL');
+        const promise = this.loadIdentity(messengerLogin).finally(() => { this.identitiesInFlight.delete(messengerLogin); });
+        this.identitiesInFlight.set(messengerLogin, promise);
+        return promise;
+    }
+    async loadIdentity(messengerLogin) {
         const domain = env_1.env.yandexMessenger.loginDomain?.trim().toLowerCase().replace(/^@/, '');
         const suffix = domain ? `@${domain}` : '';
         // Never strip an arbitrary email domain: only the explicitly configured organization domain.
@@ -147,9 +159,13 @@ class IssueAuthorizationService {
                     continue;
                 const identity = { id: ids[0], trackerLogin: trackerLogin || candidate };
                 this.identities.set(messengerLogin, { value: identity, expiresAt: Date.now() + 5 * 60 * 1000 });
+                while (this.identities.size > 512)
+                    this.identities.delete(this.identities.keys().next().value);
                 return identity;
             }
-            catch {
+            catch (error) {
+                if (error instanceof tracker_load_1.TrackerLoadError || (error instanceof tracker_load_1.TrackerHttpError && error.status === 429))
+                    throw error;
                 // The Tracker API may accept only the short login. Try it only for the configured domain.
             }
         }
