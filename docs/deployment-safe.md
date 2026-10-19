@@ -16,7 +16,7 @@
 Каталог новой версии: `/opt/yassistant-releases/admin-load-20261019`. Если он уже существует, не удалять и не перезаписывать автоматически — выяснить состояние.
 
 1. Clone ветки в новый каталог, проверить/зафиксировать SHA и detached checkout.
-2. В новом каталоге выполнить `npm ci`, `npm test`, `npm run typecheck`, `npm run build`, `npm run smoke:release`, `npm audit --omit=dev`.
+2. В новом каталоге выполнить `npm ci --include=dev`, `npm run typecheck`, `npm run build`, `npm run test:clean`, `npm run smoke:release`, `npm audit --omit=dev`. `test:clean` запускает тот же полный набор тестов из временной cwd без `.env` и без унаследованных application env variables; тестовые URL заданы явно в фикстурах. Нужна предварительная сборка tools. Настоящий `.env` не перемещается и не удаляется.
 3. `smoke:release` сам принудительно выключает Messenger/Tracker/admin/LLM до импорта конфигурации, открывает только ephemeral loopback port, проверяет health и отсутствие webhook/admin routes. Не читает/не мигрирует рабочую analytics DB. Это offline smoke, не проверка реального API/бота.
 4. Не выполнять `npm start`/`npm run dev` в новом каталоге и не копировать `.env` до успешных проверок. Старый сервис продолжает работать на 3002.
 

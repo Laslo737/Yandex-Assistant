@@ -1,11 +1,17 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { AssistantService } from './assistant.service';
+import { env } from '../../../config/env';
 import { AnalyticsStore } from '../../analytics/analytics.store';
 import { AnalyticsService } from '../../analytics/analytics.service';
 import { TrackerLoadError } from '../../../integrations/yandex-tracker/tracker-load';
 import { getManagerFocusIssueKeys } from '../presentation/manager.formatters';
 import { YandexMessengerEvent, YandexMessengerReplyMessage } from '../../../interfaces/yandex-messenger/yandex-messenger.types';
+
+// Explicit non-production URL fixtures: formatter tests must also pass in a fresh checkout without .env.
+// Node's test runner isolates this file from other test workers.
+env.app.publicBaseUrl = 'https://assistant.example.test';
+env.tracker.webBaseUrl = 'https://tracker.example.test';
 
 type Deps = ConstructorParameters<typeof AssistantService>[0];
 function event(text: string, type = 'private'): YandexMessengerEvent {
