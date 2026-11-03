@@ -102,6 +102,57 @@ test('conflicting Tracker user IDs are rejected', async () => {
   assert.equal(await new IssueAuthorizationService(tracker).resolveUserId('worker'), undefined);
 });
 
+test('fresh search auth projection checks 728 issues with one user/queue ACL lookup, no per-issue GETs', async () => {
+  let minimal = 0; let users = 0; let queues = 0;
+  const tracker = {
+    getIssueAuthFields: async () => { minimal++; throw new Error('must reuse complete projection'); },
+    getQueueUserPermissions: async () => { users++; return permission({}, 'assignee'); },
+    getQueuePermissions: async () => { queues++; return acl; }
+  } as unknown as ConstructorParameters<typeof IssueAuthorizationService>[0];
+  const service = new IssueAuthorizationService(tracker);
+  const complete = { ...issue, access: issue.access!, followers: issue.followers! };
+  const batch = Array.from({ length: 728 }, (_, i) => ({ ...complete, id: String(i), key: `IT-${i + 1}` }));
+  assert.equal((await service.filterReadableSearchIssues('assignee', batch)).length, 728);
+  assert.deepEqual({ minimal, users, queues }, { minimal: 0, users: 1, queues: 1 });
+  await service.filterReadableSearchIssues('assignee', batch.slice(0, 1));
+  assert.deepEqual({ minimal, users, queues }, { minimal: 0, users: 2, queues: 2 }, 'permissions are fresh per report');
+});
+
+test('batch auth retains DENY precedence, component rejection and fail-closed malformed ACL', async () => {
+  const complete = { ...issue, access: issue.access!, followers: issue.followers! };
+  let rights = permission({ READ: { users: [{ id: 'assignee' }] }, DENY: { groups: [{ id: 'denied' }] } }, 'assignee');
+  let calls = 0;
+  const tracker = {
+    getIssueAuthFields: async () => { throw new Error('must not GET'); },
+    getQueueUserPermissions: async () => { calls++; return rights; },
+    getQueuePermissions: async () => acl
+  } as unknown as ConstructorParameters<typeof IssueAuthorizationService>[0];
+  const service = new IssueAuthorizationService(tracker);
+  assert.equal((await service.filterReadableSearchIssues('assignee', [complete])).length, 0);
+  const before = calls;
+  assert.equal((await service.filterReadableSearchIssues('assignee', [{ ...complete, components: [{ id: '41' }] }])).length, 0);
+  assert.equal(calls, before, 'unsupported components never trigger an allow');
+  rights = permission({ READ: { groups: 'bad' as never } }, 'assignee');
+  await assert.rejects(service.filterReadableSearchIssues('assignee', [complete]), /Не удалось проверить доступ/);
+});
+
+test('incomplete search auth fields always fall back to canonical GET, including missing empty arrays', async () => {
+  const complete = { ...issue, access: issue.access!, followers: issue.followers! };
+  for (const field of ['components', 'followers', 'access', 'createdBy', 'assignee', 'queue'] as const) {
+    let gets = 0;
+    const tracker = {
+      getIssueAuthFields: async () => { gets++; return { ...complete, components: [{ id: 'restricted' }] }; },
+      getQueueUserPermissions: async () => { throw new Error('must not allow restricted canonical issue'); }
+    } as unknown as ConstructorParameters<typeof IssueAuthorizationService>[0];
+    const incomplete = { ...complete, [field]: undefined };
+    assert.equal((await new IssueAuthorizationService(tracker).filterReadableSearchIssues('assignee', [incomplete])).length, 0);
+    assert.equal(gets, 1, field);
+  }
+  const missing = { ...complete, components: undefined };
+  const failed = { getIssueAuthFields: async () => { throw Object.assign(new Error('Forbidden'), { status: 403 }); } } as unknown as ConstructorParameters<typeof IssueAuthorizationService>[0];
+  await assert.rejects(new IssueAuthorizationService(failed).filterReadableSearchIssues('assignee', [missing]), /Не удалось проверить доступ/);
+});
+
 test('API failure and forbidden service-account fetch fail closed', async () => {
   const tracker = {
     getIssueAuthFields: async () => { throw Object.assign(new Error('Forbidden'), { status: 403 }); }

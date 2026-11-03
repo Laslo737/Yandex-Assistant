@@ -4,6 +4,13 @@ exports.IssueAuthorizationService = void 0;
 exports.evaluateIssueAccess = evaluateIssueAccess;
 const env_1 = require("../../../config/env");
 const tracker_load_1 = require("../../../integrations/yandex-tracker/tracker-load");
+// Only reuse an explicitly complete, fresh Tracker _search projection. Missing fields are
+// NOT interpreted as empty ACLs: fall back to the canonical GET auth-fields path.
+function completeSearchAuthFields(issue) {
+    return typeof issue.key === 'string' && Boolean(issue.key) && typeof issue.queue?.key === 'string' && Boolean(issue.queue.key) &&
+        typeof issue.createdBy?.id === 'string' && typeof issue.assignee?.id === 'string' &&
+        Array.isArray(issue.followers) && Array.isArray(issue.access) && Array.isArray(issue.components);
+}
 function subjects(value, field) {
     if (!value)
         return false;
@@ -93,6 +100,24 @@ class IssueAuthorizationService {
         this.tracker = tracker;
     }
     async filterReadableIssues(userId, issues, requireComplete = false) {
+        return this.filterIssues(issues, requireComplete, (issue, cache) => this.canReadIssue(userId, issue.key, cache));
+    }
+    /** Fresh server-side _search data only; never webhook payloads, cached indexes or caller-supplied ACLs. */
+    async filterReadableSearchIssues(userId, issues, requireComplete = true) {
+        let reused = 0;
+        let fallback = 0;
+        const readable = await this.filterIssues(issues, requireComplete, (issue, cache) => {
+            if (completeSearchAuthFields(issue)) {
+                reused++;
+                return this.authorizeSnapshot(userId, issue, cache, false);
+            }
+            fallback++;
+            return this.canReadIssue(userId, issue.key, cache);
+        });
+        console.info('tracker.batch_access', JSON.stringify({ checked: issues.length, allowed: readable.length, reused, fallback }));
+        return readable;
+    }
+    async filterIssues(issues, requireComplete, decide) {
         const result = [];
         const permissionCache = {
             users: new Map(),
@@ -105,7 +130,7 @@ class IssueAuthorizationService {
             while (!failed && cursor < issues.length) {
                 const index = cursor++;
                 const issue = issues[index];
-                const decision = await this.canReadIssue(userId, issue.key, permissionCache);
+                const decision = await decide(issue, permissionCache);
                 if (decision.reason === 'AUTH_CHECK_FAILED' || requireComplete && decision.reason === 'SERVICE_UNAVAILABLE') {
                     failed = true;
                     throw new Error('Не удалось проверить доступ ко всем задачам. Попробуйте позже.');
@@ -191,6 +216,18 @@ class IssueAuthorizationService {
             return result({ allowed: false, reason: status === 401 || status === 403 || status === 404 ? 'SERVICE_UNAVAILABLE' : 'AUTH_CHECK_FAILED' });
         }
         if (!issue?.queue?.key || !Array.isArray(issue.components) || !issue.key || issue.key.toUpperCase() !== issueKey.toUpperCase()) {
+            return result({ allowed: false, reason: 'AUTH_CHECK_FAILED' });
+        }
+        return this.authorizeSnapshot(userId, issue, cache);
+    }
+    async authorizeSnapshot(userId, issue, cache, logDecision = true) {
+        const result = (decision, queue) => {
+            const access = { ...decision, issueKey: issue.key, userId, queue };
+            if (logDecision)
+                console.info('tracker.issue_access', JSON.stringify(access));
+            return access;
+        };
+        if (!userId || !issue?.key || !issue.queue?.key || !Array.isArray(issue.components)) {
             return result({ allowed: false, reason: 'AUTH_CHECK_FAILED' });
         }
         const queue = issue.queue.key;

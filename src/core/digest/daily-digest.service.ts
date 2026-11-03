@@ -51,12 +51,13 @@ export class DailyDigestService {
     const [statuses, assigned] = await Promise.all([
       this.workday.getStatuses(),
       fetchAllIssuesByAssignee(this.tracker, identity.trackerLogin,
-        ['summary', 'status', 'statusType', 'assignee', 'priority', 'deadline', 'queue'])
+        ['summary', 'status', 'statusType', 'assignee', 'priority', 'deadline', 'queue',
+          'createdBy', 'followers', 'access', 'components'])
     ]);
     if (!Array.isArray(statuses) || !statuses.length) throw new Error('DIGEST_STATUSES_UNAVAILABLE');
     const own = assigned.filter((issue) => issue.assignee?.id === identity.id);
     // Unlike the explicitly simplified interactive My day, scheduled reports never bypass ACL.
-    const readable = await this.authorization.filterReadableIssues(identity.id, own, true);
+    const readable = await this.authorization.filterReadableSearchIssues(identity.id, own, true);
     const terminal = statuses.filter((status) => status.type === 'done' || status.type === 'cancelled');
     const ids = new Set(terminal.map((status) => String(status.id)));
     const keys = new Set(terminal.map((status) => status.key).filter((key): key is string => Boolean(key)));

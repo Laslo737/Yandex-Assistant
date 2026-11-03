@@ -20,6 +20,12 @@
 
 **АКТУАЛЬНАЯ СВОДКА ПОСЛЕ ВЫКЛАДКИ И ПЕРЕХОДА НА ПОСТОЯННУЮ ПАПКУ.** Это главный continuation context; старые шаги выкладки ниже — история, НЕ команды для повторного выполнения.
 
+### Hotfix таймаута дайджеста: диагностирован, подготовлен локально
+- После нажатия «Дайджест на сегодня» пользователь получил timeout. В production analytics: **60 696 ms, MY_DAY_TIMEOUT, 386 Tracker HTTP-попыток, 0 HTTP429**. Это не основание снимать ACL или просто повышать таймаут.
+- Live read-only probe на единственном зарегистрированном private контакте: **728 назначенных задач, 8 страниц**. Первая страница с auth-полями загружена за 1 152 ms; key/queue/assignee/createdBy/followers/access/components присутствуют во всех 100 объектах, components — массивы. Для первого объекта эти auth-поля полностью совпали с отдельным GET auth-fields. Имена, ключи задач, ID и секреты не выводились.
+- Причина N+1: старый daily build запрашивал auth-fields отдельно для каждой назначенной задачи, включая завершённые ради метрики «Всего». Подготовлен `filterReadableSearchIssues`: свежие полные auth-поля `_search` + прежний evaluator + per-report queue permission cache; на неполной проекции прежний GET fallback. DENY/components/fail-closed не ослаблены, другие сценарии не переводились на новый путь, глобальные rate/timeout не менялись.
+- Локально **77/77 тестов**, typecheck/build/clean tests/offline smoke/diff check успешны. Добавлены регрессии на 728 задач/8 страниц без 728 GET, request-local permissions, DENY/компоненты/ошибки/неполные массивы. Нужны staged Ubuntu tests и реальный замер нового build до переключения; пока production остаётся на предыдущем runtime, sending OFF.
+
 ### Production deploy: выполнен, авторассылка пока выключена
 - Пользователь попросил выложить на production; сообщил, что пока единственный пользователь. SSH-доступ проверен по IP текущего HTTPS-домена с уже известным host key, без отключения проверки ключа.
 - Read-only preflight: сервис active, health OK, `/admin` → 401, стабильный symlink на прежний admin-load release, main @ bdf1ede, чистый worktree; Node 24.21.0/npm 11.19.0, свободно 51 GiB. Environment только NODE_ENV=production/ENABLE_ADMIN=true; внешний EnvironmentFile и ExecStartPre/Post отсутствуют. Backup timer active, последний Result=success.
