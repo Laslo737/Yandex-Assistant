@@ -1,8 +1,8 @@
 # Один постоянный рабочий путь
 
-> **Актуализация после 41ee813:** `/opt/yandex-360-ai-assistant` теперь указывает на
-> daily-digest release; его предшественник admin-load сохранён. Текущий откат:
-> `bash /root/yassistant-backups/daily-digest-20261103T111620-174729297/rollback.sh`.
+> **Актуализация после daily release и hotfix 0eea730:** `/opt/yandex-360-ai-assistant` теперь указывает на
+> digest-auth release; предшественники daily41 и admin-load сохранены. Текущий откат:
+> `bash /root/yassistant-backups/digest-auth-20261103T114421-423357194/rollback.sh`.
 > Известный прежний entrypoint `20261019-162724/rollback.sh` теперь wrapper на него,
 > а НЕ сразу на legacy. Блоки ниже описывают **историческую миграцию октября**;
 > её scripts повторно не запускать. Точный подтверждённый статус/backup — `todo.md`.
