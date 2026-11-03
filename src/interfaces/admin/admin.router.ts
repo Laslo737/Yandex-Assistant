@@ -49,8 +49,10 @@ export function createAdminRouter(store: AnalyticsStore, credentials: AdminCrede
   });
   router.get(['/', '/users', '/activity'], (req, res) => {
     const scalar = (name: string) => typeof req.query[name] === 'string' ? (req.query[name] as string).slice(0, 200) : '';
-    const days = ['1', '7', '30'].includes(scalar('days')) ? scalar('days') : '7';
-    const since = new Date(Date.now() - Number(days) * 86400_000).toISOString();
+    const defaultDays = req.path === '/users' ? 'all' : '7';
+    const allowedDays = req.path === '/users' ? ['all', '1', '7', '30'] : ['1', '7', '30'];
+    const days = allowedDays.includes(scalar('days')) ? scalar('days') : defaultDays;
+    const since = new Date(Date.now() - Number(days === 'all' ? '30' : days) * 86400_000).toISOString();
     const page = Math.min(100_000, Math.max(1, Math.floor(Number(scalar('page'))) || 1));
     const scenario = scalar('scenario'); const outcome = scalar('outcome');
     const query: Record<string, string> = { days };
@@ -64,7 +66,7 @@ export function createAdminRouter(store: AnalyticsStore, credentials: AdminCrede
     }
     try {
       store.cleanup();
-      const html = req.path === '/users' ? usersPage(store, since, query, page)
+      const html = req.path === '/users' ? usersPage(store, days === 'all' ? null : since, query, page)
         : req.path === '/activity' ? activityPage(store, { since, page, user: query.user,
           scenario: query.scenario as keyof typeof SCENARIOS, outcome: query.outcome as keyof typeof OUTCOMES,
           requestId: query.requestId }, query, page)

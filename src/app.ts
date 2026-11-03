@@ -1,4 +1,5 @@
 import express from 'express';
+import { resolve } from 'node:path';
 import { AnalyticsStore } from './core/analytics/analytics.store';
 import { AnalyticsService } from './core/analytics/analytics.service';
 import { createAdminRouter } from './interfaces/admin/admin.router';
@@ -8,11 +9,15 @@ import { createShortLinkRouter } from './interfaces/http/short-link.router';
 import { createYandexMessengerRouter } from './interfaces/yandex-messenger/yandex-messenger.router';
 import { DedupeStore } from './shared/utils/dedupe-store';
 import { YandexMessengerClient } from './interfaces/yandex-messenger/yandex-messenger.client';
-import { YandexMessengerSender } from './interfaces/yandex-messenger/yandex-messenger.sender';
+import { mapButtons, YandexMessengerSender } from './interfaces/yandex-messenger/yandex-messenger.sender';
 import { AssistantService } from './core/assistant/application/assistant.service';
 import { OpenRouterAiService } from './core/ai/application/openrouter-ai.service';
 import { QueryService } from './core/query/application/query.service';
 import { DigestService } from './core/digest/application/digest.service';
+import { DigestStore } from './core/digest/digest.store';
+import { DigestSubscriptions } from './core/digest/digest-subscriptions';
+import { DailyDigestService } from './core/digest/daily-digest.service';
+import { DigestScheduler } from './core/digest/digest.scheduler';
 import { HealthService } from './core/health/application/health.service';
 import { TrackerSyncService } from './core/tracker/application/tracker-sync.service';
 import { PlatformStatusService } from './core/platform/application/platform-status.service';
@@ -32,6 +37,16 @@ export function createApp() {
   app.disable('x-powered-by');
   app.use(express.json({ limit: '1mb' }));
 
+  if (env.digest.enabled && (!env.yandexMessenger.enabled || !env.tracker.enabled ||
+      !env.yandexMessenger.key || !env.app.publicBaseUrl?.startsWith('https://'))) {
+    throw new Error('DAILY_DIGEST_REQUIRES_MESSENGER_TRACKER_AND_HTTPS');
+  }
+  if (env.digest.enabled && !env.digest.allowlist.length) throw new Error('DIGEST_ALLOWLIST_REQUIRED');
+  if (env.digest.enabled) {
+    const paths = [env.admin.databasePath, env.digest.databasePath, env.app.shortLinksDatabasePath]
+      .filter((path) => path !== ':memory:').map((path) => resolve(path).toLowerCase());
+    if (new Set(paths).size !== paths.length) throw new Error('DAILY_DIGEST_REQUIRES_SEPARATE_DATABASE_FILES');
+  }
   let analytics: AnalyticsService | undefined;
   if (env.admin.enabled) {
     if (!env.admin.username || env.admin.username.includes(':') || env.admin.password.length < 5) {
@@ -52,6 +67,7 @@ export function createApp() {
   }
 
   const trackerApiClient = new TrackerApiClient();
+  if (env.digest.enabled && !trackerApiClient.isConfigured()) throw new Error('DAILY_DIGEST_REQUIRES_TRACKER_CREDENTIALS');
   const authorization = new IssueAuthorizationService(trackerApiClient);
   const trackerSyncService = new TrackerSyncService(trackerApiClient);
   const queryService = new QueryService();
@@ -92,12 +108,30 @@ export function createApp() {
     const dedupeStore = new DedupeStore();
     const messengerClient = new YandexMessengerClient();
     const messengerSender = new YandexMessengerSender(messengerClient);
+    let digestSubscriptions: DigestSubscriptions | undefined;
+    let dailyDigestService: DailyDigestService | undefined;
+    try {
+      const store = new DigestStore(env.digest.databasePath);
+      digestSubscriptions = new DigestSubscriptions(store, env.digest.enabled, env.digest.allowlist);
+      const daily = new DailyDigestService(trackerApiClient, authorization, workdayService);
+      dailyDigestService = daily;
+      app.locals.digestScheduler = new DigestScheduler(store, env.digest,
+        (job) => daily.build(job.login, job.trackerId, job.date),
+        (job, message, signal) => messengerClient.sendTextOnce({ login: job.login,
+          payload_id: message.payloadId!, text: message.text,
+          suggest_buttons: message.buttons?.length ? mapButtons(message.buttons) : undefined }, signal));
+    } catch (error) {
+      console.error('digest.initialization_failed');
+      if (env.digest.enabled) throw new Error('DAILY_DIGEST_STORAGE_OR_CONFIG_UNAVAILABLE');
+    }
     const assistantService = new AssistantService({
       sender: messengerSender,
       analytics,
       authorization,
       queryService,
       digestService,
+      digestSubscriptions,
+      dailyDigestService,
       healthService,
       trackerSyncService,
       workdayService,

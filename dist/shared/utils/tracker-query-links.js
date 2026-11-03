@@ -3,6 +3,7 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildMyAllIssuesUrl = buildMyAllIssuesUrl;
 exports.buildMyActiveIssuesUrl = buildMyActiveIssuesUrl;
 exports.buildMyClosedIssuesUrl = buildMyClosedIssuesUrl;
+exports.buildMyDueTodayIssuesUrl = buildMyDueTodayIssuesUrl;
 exports.buildMyOverdueIssuesUrl = buildMyOverdueIssuesUrl;
 exports.buildMyRecentlyUpdatedIssuesUrl = buildMyRecentlyUpdatedIssuesUrl;
 exports.buildTeamAllIssuesUrl = buildTeamAllIssuesUrl;
@@ -19,6 +20,8 @@ function normalizeLogin(login) {
 }
 function exactLogin(login) {
     const normalized = normalizeLogin(login);
+    if (!/^[\p{L}\p{N}_.@+-]+$/u.test(normalized))
+        throw new Error('INVALID_TRACKER_LOGIN');
     return normalized.endsWith('@') ? normalized : `${normalized}@`;
 }
 function escapeQueryValue(value) {
@@ -65,11 +68,24 @@ function buildMyClosedIssuesUrl(login, terminalStatuses) {
         includeStatusesClause(terminalStatuses)
     ]));
 }
-function buildMyOverdueIssuesUrl(login, terminalStatuses) {
+function buildMyDueTodayIssuesUrl(login, terminalStatuses, date) {
+    assertCalendarDate(date);
+    return buildIssuesUrl(joinClauses([
+        `Assignee: ${exactLogin(login)}`, excludeStatusesClause(terminalStatuses), `Deadline: ${date}`
+    ]));
+}
+function assertCalendarDate(date) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(`${date}T12:00:00Z`)) ||
+        new Date(`${date}T12:00:00Z`).toISOString().slice(0, 10) !== date)
+        throw new Error('INVALID_REPORT_DATE');
+}
+function buildMyOverdueIssuesUrl(login, terminalStatuses, date) {
+    if (date !== undefined)
+        assertCalendarDate(date);
     return buildIssuesUrl(joinClauses([
         `Assignee: ${exactLogin(login)}`,
         excludeStatusesClause(terminalStatuses),
-        'Deadline: < today()'
+        `Deadline: < ${date || 'today()'}`
     ]));
 }
 function buildMyRecentlyUpdatedIssuesUrl(login, terminalStatuses) {

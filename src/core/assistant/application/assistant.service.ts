@@ -9,6 +9,10 @@ import {
 import { YandexMessengerSender } from '../../../interfaces/yandex-messenger/yandex-messenger.sender';
 import { ChangesService } from '../../changes/application/changes.service';
 import { DigestService } from '../../digest/application/digest.service';
+import { DigestSubscriptions } from '../../digest/digest-subscriptions';
+import { DailyDigestService } from '../../digest/daily-digest.service';
+import { moscowDate } from '../../digest/digest-calendar';
+import { withTrackerDeadline } from '../../../integrations/yandex-tracker/tracker-load';
 import { IssueExplainAiService } from '../../explain/application/issue-explain-ai.service';
 import { IssueExplainService } from '../../explain/application/issue-explain.service';
 import { HealthService } from '../../health/application/health.service';
@@ -56,7 +60,6 @@ const CHANGES_ROW = [{ text: '🕒 Изменения' }];
 const MANAGER_BRIEFING_ROW = [{ text: '🧭 Сводка руководителя' }];
 const PROCESS_ANALYSIS_ROW = [{ text: '📈 Риски по очередям' }];
 const ISSUE_HELP_ROW = [{ text: '🆘 Помощь с задачей' }];
-const ASK_AI_ROW = [{ text: '🤖 Спросить AI' }];
 
 function pairButtons(buttons: Array<{ text: string }>): Array<Array<{ text: string }>> {
   const rows: Array<Array<{ text: string }>> = [];
@@ -124,8 +127,7 @@ function buildChangesSummaryRows(
       { text: scope === 'my' ? '🕒 Мои 7д' : '🕒 Команда 7д' }
     ],
     [CHANGES_ROW[0]],
-    ...(isManager ? [MANAGER_BRIEFING_ROW, PROCESS_ANALYSIS_ROW] : []),
-    ASK_AI_ROW
+    ...(isManager ? [MANAGER_BRIEFING_ROW, PROCESS_ANALYSIS_ROW] : [])
   ]);
 }
 
@@ -159,7 +161,6 @@ function buildDigestRows(issueKeys: string[], _isManager: boolean): Array<Array<
 
   return withMenuAtBottom([
     ...analysisRows,
-    ASK_AI_ROW,
     MANAGER_BRIEFING_ROW
   ]);
 }
@@ -196,17 +197,16 @@ function buildIssueAnalysisRows(issueKey: string): Array<Array<{ text: string }>
   return withMenuAtBottom([
     [{ text: `Анализ ${issueKey}` }],
     ISSUE_HELP_ROW,
-    ASK_AI_ROW,
     MANAGER_BRIEFING_ROW
   ]);
 }
 
-function buildMainMenuRows(isManager: boolean, includeDebug: boolean): Array<Array<{ text: string }>> {
+function buildMainMenuRows(isManager: boolean, includeDebug: boolean, includeDigestSettings = false): Array<Array<{ text: string }>> {
   const rows: Array<Array<{ text: string }>> = [
     [{ text: '🗓 Мой день' }],
     ...(isManager ? [MANAGER_BRIEFING_ROW, PROCESS_ANALYSIS_ROW] : []),
     ISSUE_HELP_ROW,
-    ASK_AI_ROW
+    ...(includeDigestSettings ? [[{ text: '⚙️ Настройки дайджеста' }]] : [])
   ];
 
   if (includeDebug) {
@@ -246,6 +246,8 @@ export class AssistantService {
       authorization: IssueAuthorizationService;
       queryService: QueryService;
       digestService: DigestService;
+      digestSubscriptions?: DigestSubscriptions;
+      dailyDigestService?: DailyDigestService;
       healthService: HealthService;
       trackerSyncService: TrackerSyncService;
       workdayService: WorkdayService;
@@ -288,6 +290,15 @@ export class AssistantService {
     }
 
     const text = normalizeIncomingText(event.text);
+    if (['настройки дайджеста', 'включить дайджест', 'отключить дайджест', 'дайджест на сегодня'].includes(text)
+        && !this.deps.digestSubscriptions) {
+      return this.reply(event, { text: 'Настройки и утренний дайджест сейчас недоступны. Попробуйте позже.' });
+    }
+    // Existing subscribers can opt out even while Tracker identity lookup is unavailable.
+    if (text === 'отключить дайджест' && login && this.deps.digestSubscriptions) {
+      try { return this.reply(event, this.deps.digestSubscriptions.disable(login)); }
+      catch { return this.reply(event, { text: 'Не удалось сохранить настройку. Попробуйте позже.' }); }
+    }
     // Self-diagnostic: reveal only the login supplied by the verified Messenger webhook,
     // only to the sender in their private chat. Does not accept a login from message text.
     if (text === 'whoami' || text === 'мой логин') {
@@ -303,6 +314,19 @@ export class AssistantService {
       return this.reply(event, { text: 'Не удалось подтвердить вашу учетную запись в Tracker. Попробуйте позже.' });
     }
     const userId = identity.id;
+    if (login && this.deps.digestSubscriptions) {
+      try {
+        // Only reached after a private-chat gate AND verified Messenger -> Tracker binding.
+        this.deps.digestSubscriptions.recordContact(login, userId);
+        const response = this.deps.digestSubscriptions.handleCommand(text, login);
+        if (response) return this.reply(event, response);
+      } catch {
+        console.error('digest.contact_storage_failed');
+        if (text.includes('дайджест') && text !== 'дайджест') {
+          return this.reply(event, { text: 'Не удалось сохранить настройку дайджеста. Попробуйте позже.' });
+        }
+      }
+    }
     const buttons = await this.getMainButtons(event);
 
     if (['start', 'help', 'menu', 'меню', 'помощь', '📋 меню'].includes(text)) {
@@ -439,6 +463,17 @@ export class AssistantService {
           text: this.friendlyError('Не удалось собрать изменения по команде.', error),
           buttons
         });
+      }
+    }
+
+    if (text === 'дайджест на сегодня' && login && this.deps.dailyDigestService) {
+      this.deps.analytics?.scenario('digest');
+      try {
+        const report = await withTrackerDeadline(env.digest.loadTimeoutMs,
+          () => this.deps.dailyDigestService!.build(login, userId, moscowDate(Date.now())));
+        return this.reply(event, report);
+      } catch (error) {
+        return this.reply(event, { text: this.friendlyError('Не удалось собрать утренний дайджест. Попробуйте позже.', error), buttons });
       }
     }
 
@@ -688,14 +723,15 @@ export class AssistantService {
   private async getMainButtons(event: YandexMessengerEvent): Promise<Array<Array<{ text: string }>>> {
     const login = event.from?.login?.trim();
     const includeDebug = env.app.debugCommands;
+    const includeDigestSettings = Boolean(this.deps.digestSubscriptions);
 
-    if (!login) return buildMainMenuRows(false, includeDebug);
+    if (!login) return buildMainMenuRows(false, includeDebug, includeDigestSettings);
 
     try {
       const isManager = await this.deps.managerSummaryService.isManagerLogin(login);
-      return buildMainMenuRows(isManager, includeDebug);
+      return buildMainMenuRows(isManager, includeDebug, includeDigestSettings);
     } catch {
-      return buildMainMenuRows(false, includeDebug);
+      return buildMainMenuRows(false, includeDebug, includeDigestSettings);
     }
   }
 

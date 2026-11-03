@@ -1,6 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.WorkdayService = void 0;
+exports.isDone = isDone;
+exports.fetchAllIssuesByAssignee = fetchAllIssuesByAssignee;
 const env_1 = require("../../../config/env");
 const expiring_cache_1 = require("../../../shared/utils/expiring-cache");
 const request_metrics_1 = require("../../analytics/request-metrics");

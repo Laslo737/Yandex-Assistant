@@ -98,7 +98,7 @@ export class IssueAuthorizationService {
 
   constructor(private readonly tracker: TrackerApiClient) {}
 
-  async filterReadableIssues(userId: string, issues: TrackerIssue[]): Promise<TrackerIssue[]> {
+  async filterReadableIssues(userId: string, issues: TrackerIssue[], requireComplete = false): Promise<TrackerIssue[]> {
     const result: TrackerIssue[] = [];
     const permissionCache = {
       users: new Map<string, Promise<TrackerQueueUserPermissions>>(),
@@ -106,12 +106,16 @@ export class IssueAuthorizationService {
     };
     // Bound concurrency: large queues must not start hundreds of simultaneous API calls.
     let cursor = 0;
+    let failed = false;
     await Promise.all(Array.from({ length: Math.min(5, issues.length) }, async () => {
-      while (cursor < issues.length) {
+      while (!failed && cursor < issues.length) {
         const index = cursor++;
         const issue = issues[index];
         const decision = await this.canReadIssue(userId, issue.key, permissionCache);
-        if (decision.reason === 'AUTH_CHECK_FAILED') throw new Error('Не удалось проверить доступ ко всем задачам. Попробуйте позже.');
+        if (decision.reason === 'AUTH_CHECK_FAILED' || requireComplete && decision.reason === 'SERVICE_UNAVAILABLE') {
+          failed = true;
+          throw new Error('Не удалось проверить доступ ко всем задачам. Попробуйте позже.');
+        }
         if (decision.allowed) result[index] = issue;
       }
     }));

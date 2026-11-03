@@ -5,6 +5,7 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.createApp = createApp;
 const express_1 = __importDefault(require("express"));
+const node_path_1 = require("node:path");
 const analytics_store_1 = require("./core/analytics/analytics.store");
 const analytics_service_1 = require("./core/analytics/analytics.service");
 const admin_router_1 = require("./interfaces/admin/admin.router");
@@ -19,6 +20,10 @@ const assistant_service_1 = require("./core/assistant/application/assistant.serv
 const openrouter_ai_service_1 = require("./core/ai/application/openrouter-ai.service");
 const query_service_1 = require("./core/query/application/query.service");
 const digest_service_1 = require("./core/digest/application/digest.service");
+const digest_store_1 = require("./core/digest/digest.store");
+const digest_subscriptions_1 = require("./core/digest/digest-subscriptions");
+const daily_digest_service_1 = require("./core/digest/daily-digest.service");
+const digest_scheduler_1 = require("./core/digest/digest.scheduler");
 const health_service_1 = require("./core/health/application/health.service");
 const tracker_sync_service_1 = require("./core/tracker/application/tracker-sync.service");
 const platform_status_service_1 = require("./core/platform/application/platform-status.service");
@@ -36,6 +41,18 @@ function createApp() {
     const app = (0, express_1.default)();
     app.disable('x-powered-by');
     app.use(express_1.default.json({ limit: '1mb' }));
+    if (env_1.env.digest.enabled && (!env_1.env.yandexMessenger.enabled || !env_1.env.tracker.enabled ||
+        !env_1.env.yandexMessenger.key || !env_1.env.app.publicBaseUrl?.startsWith('https://'))) {
+        throw new Error('DAILY_DIGEST_REQUIRES_MESSENGER_TRACKER_AND_HTTPS');
+    }
+    if (env_1.env.digest.enabled && !env_1.env.digest.allowlist.length)
+        throw new Error('DIGEST_ALLOWLIST_REQUIRED');
+    if (env_1.env.digest.enabled) {
+        const paths = [env_1.env.admin.databasePath, env_1.env.digest.databasePath, env_1.env.app.shortLinksDatabasePath]
+            .filter((path) => path !== ':memory:').map((path) => (0, node_path_1.resolve)(path).toLowerCase());
+        if (new Set(paths).size !== paths.length)
+            throw new Error('DAILY_DIGEST_REQUIRES_SEPARATE_DATABASE_FILES');
+    }
     let analytics;
     if (env_1.env.admin.enabled) {
         if (!env_1.env.admin.username || env_1.env.admin.username.includes(':') || env_1.env.admin.password.length < 5) {
@@ -56,6 +73,8 @@ function createApp() {
         }
     }
     const trackerApiClient = new tracker_client_1.TrackerApiClient();
+    if (env_1.env.digest.enabled && !trackerApiClient.isConfigured())
+        throw new Error('DAILY_DIGEST_REQUIRES_TRACKER_CREDENTIALS');
     const authorization = new issue_authorization_service_1.IssueAuthorizationService(trackerApiClient);
     const trackerSyncService = new tracker_sync_service_1.TrackerSyncService(trackerApiClient);
     const queryService = new query_service_1.QueryService();
@@ -95,12 +114,30 @@ function createApp() {
         const dedupeStore = new dedupe_store_1.DedupeStore();
         const messengerClient = new yandex_messenger_client_1.YandexMessengerClient();
         const messengerSender = new yandex_messenger_sender_1.YandexMessengerSender(messengerClient);
+        let digestSubscriptions;
+        let dailyDigestService;
+        try {
+            const store = new digest_store_1.DigestStore(env_1.env.digest.databasePath);
+            digestSubscriptions = new digest_subscriptions_1.DigestSubscriptions(store, env_1.env.digest.enabled, env_1.env.digest.allowlist);
+            const daily = new daily_digest_service_1.DailyDigestService(trackerApiClient, authorization, workdayService);
+            dailyDigestService = daily;
+            app.locals.digestScheduler = new digest_scheduler_1.DigestScheduler(store, env_1.env.digest, (job) => daily.build(job.login, job.trackerId, job.date), (job, message, signal) => messengerClient.sendTextOnce({ login: job.login,
+                payload_id: message.payloadId, text: message.text,
+                suggest_buttons: message.buttons?.length ? (0, yandex_messenger_sender_1.mapButtons)(message.buttons) : undefined }, signal));
+        }
+        catch (error) {
+            console.error('digest.initialization_failed');
+            if (env_1.env.digest.enabled)
+                throw new Error('DAILY_DIGEST_STORAGE_OR_CONFIG_UNAVAILABLE');
+        }
         const assistantService = new assistant_service_1.AssistantService({
             sender: messengerSender,
             analytics,
             authorization,
             queryService,
             digestService,
+            digestSubscriptions,
+            dailyDigestService,
             healthService,
             trackerSyncService,
             workdayService,

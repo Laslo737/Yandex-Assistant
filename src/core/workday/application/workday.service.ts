@@ -36,7 +36,7 @@ function toDate(value?: string): Date | null {
   return Number.isNaN(date.getTime()) ? null : date;
 }
 
-function isDone(issue: TrackerIssue, doneStatusIds: Set<string>, doneStatusKeys: Set<string>): boolean {
+export function isDone(issue: TrackerIssue, doneStatusIds: Set<string>, doneStatusKeys: Set<string>): boolean {
   const statusTypeId = issue.statusType?.id;
   const statusTypeKey = issue.statusType?.key;
   const statusId = issue.status?.id;
@@ -104,7 +104,7 @@ function buildAssigneeCandidates(login: string): string[] {
   ].filter(Boolean)));
 }
 
-async function fetchAllIssuesByAssignee(
+export async function fetchAllIssuesByAssignee(
   trackerClient: TrackerApiClient,
   assignee: string,
   fields: string[]
@@ -153,7 +153,7 @@ export class WorkdayService {
     this.cache = new ExpiringCache(loadOptions.cacheTtlMs, loadOptions.cacheMaxEntries, loadOptions.maxPending);
   }
 
-  private async getStatuses(): Promise<TrackerStatus[]> {
+  async getStatuses(): Promise<TrackerStatus[]> {
     const now = Date.now();
     if (this.statusesCache && this.statusesCache.expiresAt > now) {
       return this.statusesCache.value;

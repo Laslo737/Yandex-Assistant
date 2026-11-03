@@ -2,12 +2,27 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { createServer } from 'node:http';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { TrackerDispatcher } from './tracker-dispatcher';
+import { TrackerDispatcher, trackerBackground } from './tracker-dispatcher';
 import { TrackerTransport, retryDelay, safeToRetry } from './tracker.transport';
 import { TrackerLoadError, TrackerHttpError, trackerLoadMessage, withTrackerDeadline } from './tracker-load';
 import { newRequestMetrics, requestMetrics } from '../../core/analytics/request-metrics';
 
 const settings = { concurrency: 4, minIntervalMs: 0, maxQueue: 500, queueTimeoutMs: 3000, requestTimeoutMs: 1000 };
+
+test('digest HTTP uses one slot, interactive requests overtake queued background work', async () => {
+  const dispatcher = new TrackerDispatcher({ ...settings, concurrency: 2 });
+  const started: string[] = [];
+  let release!: () => void;
+  const blocked = new Promise<void>((resolve) => { release = resolve; });
+  const first = trackerBackground.run(true, () => dispatcher.run(async () => { started.push('background-1'); await blocked; }));
+  const second = trackerBackground.run(true, () => dispatcher.run(async () => { started.push('background-2'); }));
+  const third = trackerBackground.run(true, () => dispatcher.run(async () => { started.push('background-3'); }));
+  const interactive = dispatcher.run(async () => { started.push('interactive'); });
+  await interactive;
+  assert.deepEqual(started, ['background-1', 'interactive']);
+  release(); await Promise.all([first, second, third]);
+  assert.deepEqual(started, ['background-1', 'interactive', 'background-2', 'background-3']);
+});
 
 test('synthetic 50-request burst stays within concurrency and preserves request-local metrics', async () => {
   const dispatcher = new TrackerDispatcher(settings);

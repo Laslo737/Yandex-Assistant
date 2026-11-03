@@ -92,7 +92,7 @@ class IssueAuthorizationService {
     constructor(tracker) {
         this.tracker = tracker;
     }
-    async filterReadableIssues(userId, issues) {
+    async filterReadableIssues(userId, issues, requireComplete = false) {
         const result = [];
         const permissionCache = {
             users: new Map(),
@@ -100,13 +100,16 @@ class IssueAuthorizationService {
         };
         // Bound concurrency: large queues must not start hundreds of simultaneous API calls.
         let cursor = 0;
+        let failed = false;
         await Promise.all(Array.from({ length: Math.min(5, issues.length) }, async () => {
-            while (cursor < issues.length) {
+            while (!failed && cursor < issues.length) {
                 const index = cursor++;
                 const issue = issues[index];
                 const decision = await this.canReadIssue(userId, issue.key, permissionCache);
-                if (decision.reason === 'AUTH_CHECK_FAILED')
+                if (decision.reason === 'AUTH_CHECK_FAILED' || requireComplete && decision.reason === 'SERVICE_UNAVAILABLE') {
+                    failed = true;
                     throw new Error('Не удалось проверить доступ ко всем задачам. Попробуйте позже.');
+                }
                 if (decision.allowed)
                     result[index] = issue;
             }

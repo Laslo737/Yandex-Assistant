@@ -4,6 +4,8 @@ exports.AssistantService = void 0;
 const env_1 = require("../../../config/env");
 const tracker_load_1 = require("../../../integrations/yandex-tracker/tracker-load");
 const analytics_service_1 = require("../../analytics/analytics.service");
+const digest_calendar_1 = require("../../digest/digest-calendar");
+const tracker_load_2 = require("../../../integrations/yandex-tracker/tracker-load");
 const tracker_links_1 = require("../../../shared/utils/tracker-links");
 const assistant_formatters_1 = require("../presentation/assistant.formatters");
 const changes_formatters_1 = require("../presentation/changes.formatters");
@@ -23,7 +25,6 @@ const CHANGES_ROW = [{ text: '🕒 Изменения' }];
 const MANAGER_BRIEFING_ROW = [{ text: '🧭 Сводка руководителя' }];
 const PROCESS_ANALYSIS_ROW = [{ text: '📈 Риски по очередям' }];
 const ISSUE_HELP_ROW = [{ text: '🆘 Помощь с задачей' }];
-const ASK_AI_ROW = [{ text: '🤖 Спросить AI' }];
 function pairButtons(buttons) {
     const rows = [];
     for (let index = 0; index < buttons.length; index += 2) {
@@ -78,8 +79,7 @@ function buildChangesSummaryRows(issueKeys, scope, isManager) {
             { text: scope === 'my' ? '🕒 Мои 7д' : '🕒 Команда 7д' }
         ],
         [CHANGES_ROW[0]],
-        ...(isManager ? [MANAGER_BRIEFING_ROW, PROCESS_ANALYSIS_ROW] : []),
-        ASK_AI_ROW
+        ...(isManager ? [MANAGER_BRIEFING_ROW, PROCESS_ANALYSIS_ROW] : [])
     ]);
 }
 function buildMyDayRows(issueKeys) {
@@ -105,7 +105,6 @@ function buildDigestRows(issueKeys, _isManager) {
         .map((key) => ({ text: `🔎 Анализ ${key}` })));
     return withMenuAtBottom([
         ...analysisRows,
-        ASK_AI_ROW,
         MANAGER_BRIEFING_ROW
     ]);
 }
@@ -133,16 +132,15 @@ function buildIssueAnalysisRows(issueKey) {
     return withMenuAtBottom([
         [{ text: `Анализ ${issueKey}` }],
         ISSUE_HELP_ROW,
-        ASK_AI_ROW,
         MANAGER_BRIEFING_ROW
     ]);
 }
-function buildMainMenuRows(isManager, includeDebug) {
+function buildMainMenuRows(isManager, includeDebug, includeDigestSettings = false) {
     const rows = [
         [{ text: '🗓 Мой день' }],
         ...(isManager ? [MANAGER_BRIEFING_ROW, PROCESS_ANALYSIS_ROW] : []),
         ISSUE_HELP_ROW,
-        ASK_AI_ROW
+        ...(includeDigestSettings ? [[{ text: '⚙️ Настройки дайджеста' }]] : [])
     ];
     if (includeDebug) {
         rows.push(...DEBUG_BUTTONS);
@@ -202,6 +200,19 @@ class AssistantService {
             });
         }
         const text = normalizeIncomingText(event.text);
+        if (['настройки дайджеста', 'включить дайджест', 'отключить дайджест', 'дайджест на сегодня'].includes(text)
+            && !this.deps.digestSubscriptions) {
+            return this.reply(event, { text: 'Настройки и утренний дайджест сейчас недоступны. Попробуйте позже.' });
+        }
+        // Existing subscribers can opt out even while Tracker identity lookup is unavailable.
+        if (text === 'отключить дайджест' && login && this.deps.digestSubscriptions) {
+            try {
+                return this.reply(event, this.deps.digestSubscriptions.disable(login));
+            }
+            catch {
+                return this.reply(event, { text: 'Не удалось сохранить настройку. Попробуйте позже.' });
+            }
+        }
         // Self-diagnostic: reveal only the login supplied by the verified Messenger webhook,
         // only to the sender in their private chat. Does not accept a login from message text.
         if (text === 'whoami' || text === 'мой логин') {
@@ -217,6 +228,21 @@ class AssistantService {
             return this.reply(event, { text: 'Не удалось подтвердить вашу учетную запись в Tracker. Попробуйте позже.' });
         }
         const userId = identity.id;
+        if (login && this.deps.digestSubscriptions) {
+            try {
+                // Only reached after a private-chat gate AND verified Messenger -> Tracker binding.
+                this.deps.digestSubscriptions.recordContact(login, userId);
+                const response = this.deps.digestSubscriptions.handleCommand(text, login);
+                if (response)
+                    return this.reply(event, response);
+            }
+            catch {
+                console.error('digest.contact_storage_failed');
+                if (text.includes('дайджест') && text !== 'дайджест') {
+                    return this.reply(event, { text: 'Не удалось сохранить настройку дайджеста. Попробуйте позже.' });
+                }
+            }
+        }
         const buttons = await this.getMainButtons(event);
         if (['start', 'help', 'menu', 'меню', 'помощь', '📋 меню'].includes(text)) {
             this.deps.analytics?.scenario('menu');
@@ -340,6 +366,16 @@ class AssistantService {
                     text: this.friendlyError('Не удалось собрать изменения по команде.', error),
                     buttons
                 });
+            }
+        }
+        if (text === 'дайджест на сегодня' && login && this.deps.dailyDigestService) {
+            this.deps.analytics?.scenario('digest');
+            try {
+                const report = await (0, tracker_load_2.withTrackerDeadline)(env_1.env.digest.loadTimeoutMs, () => this.deps.dailyDigestService.build(login, userId, (0, digest_calendar_1.moscowDate)(Date.now())));
+                return this.reply(event, report);
+            }
+            catch (error) {
+                return this.reply(event, { text: this.friendlyError('Не удалось собрать утренний дайджест. Попробуйте позже.', error), buttons });
             }
         }
         if (['digest', 'дайджест', '📰 дайджест'].includes(text)) {
@@ -571,14 +607,15 @@ class AssistantService {
     async getMainButtons(event) {
         const login = event.from?.login?.trim();
         const includeDebug = env_1.env.app.debugCommands;
+        const includeDigestSettings = Boolean(this.deps.digestSubscriptions);
         if (!login)
-            return buildMainMenuRows(false, includeDebug);
+            return buildMainMenuRows(false, includeDebug, includeDigestSettings);
         try {
             const isManager = await this.deps.managerSummaryService.isManagerLogin(login);
-            return buildMainMenuRows(isManager, includeDebug);
+            return buildMainMenuRows(isManager, includeDebug, includeDigestSettings);
         }
         catch {
-            return buildMainMenuRows(false, includeDebug);
+            return buildMainMenuRows(false, includeDebug, includeDigestSettings);
         }
     }
     withAnalysisButtons(baseButtons, issueKeys) {

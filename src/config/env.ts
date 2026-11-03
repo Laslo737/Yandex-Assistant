@@ -21,7 +21,8 @@ export const env = {
     version: get('APP_VERSION', '0.1.0') as string,
     nodeEnv: get('NODE_ENV', 'development') as string,
     debugCommands: getBoolean('ENABLE_DEBUG_COMMANDS', 'SHOW_DEBUG_COMMANDS'),
-    publicBaseUrl: get('APP_PUBLIC_BASE_URL') as string
+    publicBaseUrl: get('APP_PUBLIC_BASE_URL') as string,
+    shortLinksDatabasePath: get('SHORT_LINKS_DB_PATH', './data/short-links.sqlite') as string
   },
   admin: {
     enabled: getBoolean('ENABLE_ADMIN'),
@@ -61,6 +62,14 @@ export const env = {
     cacheMaxEntries: Number(get('MY_DAY_CACHE_MAX_ENTRIES', '512')),
     maxPending: Number(get('MY_DAY_MAX_PENDING', '100')),
     loadTimeoutMs: Number(get('MY_DAY_LOAD_TIMEOUT_MS', '45000'))
+  },
+  digest: {
+    enabled: getBoolean('ENABLE_DAILY_DIGEST'),
+    databasePath: get('DIGEST_DB_PATH', './data/digest.sqlite') as string,
+    // Explicit logins for the pilot; '*' opts in all verified private contacts. Empty = no sending.
+    allowlist: (get('DIGEST_ALLOWLIST', '') as string).split(',').map((login) => login.trim().toLowerCase()).filter(Boolean),
+    intervalMs: Number(get('DIGEST_MIN_INTERVAL_MS', '10000')),
+    loadTimeoutMs: Number(get('DIGEST_LOAD_TIMEOUT_MS', '60000'))
   },
   llm: {
     provider: get('LLM_PROVIDER', 'mock') as string,

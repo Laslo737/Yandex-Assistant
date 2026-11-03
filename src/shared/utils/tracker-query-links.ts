@@ -7,6 +7,7 @@ function normalizeLogin(login: string): string {
 
 function exactLogin(login: string): string {
   const normalized = normalizeLogin(login);
+  if (!/^[\p{L}\p{N}_.@+-]+$/u.test(normalized)) throw new Error('INVALID_TRACKER_LOGIN');
   return normalized.endsWith('@') ? normalized : `${normalized}@`;
 }
 
@@ -65,11 +66,24 @@ export function buildMyClosedIssuesUrl(login: string, terminalStatuses: string[]
   ]));
 }
 
-export function buildMyOverdueIssuesUrl(login: string, terminalStatuses: string[]): string {
+export function buildMyDueTodayIssuesUrl(login: string, terminalStatuses: string[], date: string): string {
+  assertCalendarDate(date);
+  return buildIssuesUrl(joinClauses([
+    `Assignee: ${exactLogin(login)}`, excludeStatusesClause(terminalStatuses), `Deadline: ${date}`
+  ]));
+}
+
+function assertCalendarDate(date: string) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !Number.isFinite(Date.parse(`${date}T12:00:00Z`)) ||
+      new Date(`${date}T12:00:00Z`).toISOString().slice(0, 10) !== date) throw new Error('INVALID_REPORT_DATE');
+}
+
+export function buildMyOverdueIssuesUrl(login: string, terminalStatuses: string[], date?: string): string {
+  if (date !== undefined) assertCalendarDate(date);
   return buildIssuesUrl(joinClauses([
     `Assignee: ${exactLogin(login)}`,
     excludeStatusesClause(terminalStatuses),
-    'Deadline: < today()'
+    `Deadline: < ${date || 'today()'}`
   ]));
 }
 

@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.YandexMessengerSender = void 0;
+exports.mapButtons = mapButtons;
 function mapButtons(buttonRows = []) {
     return {
         layout: true,

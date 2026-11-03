@@ -40,7 +40,11 @@ export async function withTrackerDeadline<T>(milliseconds: number, action: () =>
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(new TrackerLoadError('MY_DAY_TIMEOUT')), milliseconds);
   try { return await trackerExecution.run(controller.signal, () => abortable(controller.signal, action)); }
-  finally {
+  catch (error) {
+    // A failed aggregate must not leave sibling ACL/page requests running without their deadline.
+    controller.abort(error);
+    throw error;
+  } finally {
     clearTimeout(timer);
     // Allow cancelled queue/HTTP promises to record their counters before the enclosing activity finishes.
     if (controller.signal.aborted) await new Promise<void>((resolve) => setImmediate(resolve));

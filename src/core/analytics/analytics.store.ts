@@ -88,7 +88,7 @@ export class AnalyticsStore {
     this.db.exec('BEGIN');
     try {
       this.db.prepare('DELETE FROM activities WHERE started_at < ?').run(cutoff);
-      this.db.prepare('DELETE FROM users WHERE last_seen < ? AND NOT EXISTS (SELECT 1 FROM activities a WHERE a.user_key=users.user_key)').run(cutoff);
+      // User identities and first/last seen are retained independently of event retention.
       this.db.exec('COMMIT'); this.lastCleanup = now;
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
   }
@@ -118,14 +118,15 @@ export class AnalyticsStore {
     return { totals, latency, scenarios, outcomes, startedAt, load, retentionDays: this.retentionDays };
   }
 
-  users(since: string, search = '', page = 1) {
+  users(since: string | null, search = '', page = 1) {
+    // null includes every saved user, even after all their events have expired.
     // instr is a literal search: user-provided SQL wildcards do not change meaning.
-    const params = [since, search.slice(0, 200)];
-    const base = `FROM users u JOIN activities a ON a.user_key=u.user_key
-      WHERE a.started_at>=? AND instr(lower(u.login),lower(?))>0`;
+    const params = since === null ? [search.slice(0, 200)] : [since, search.slice(0, 200)];
+    const base = `FROM users u ${since === null ? 'LEFT JOIN' : 'JOIN'} activities a ON a.user_key=u.user_key
+      WHERE ${since === null ? '' : 'a.started_at>=? AND '}instr(lower(u.login),lower(?))>0`;
     const total = Number(this.db.prepare(`SELECT COUNT(DISTINCT u.user_key) AS n ${base}`).get(...params)?.n || 0);
-    const rows = this.db.prepare(`SELECT u.user_key,u.login,u.first_seen,u.last_seen,COUNT(*) AS total,
-      SUM(a.outcome IN ${ERROR_SQL}) AS errors ${base} GROUP BY u.user_key ORDER BY u.last_seen DESC
+    const rows = this.db.prepare(`SELECT u.user_key,u.login,u.first_seen,u.last_seen,COUNT(a.request_id) AS total,
+      COALESCE(SUM(a.outcome IN ${ERROR_SQL}),0) AS errors ${base} GROUP BY u.user_key ORDER BY u.last_seen DESC,u.user_key
       LIMIT ? OFFSET ?`).all(...params, PAGE_SIZE, (page - 1) * PAGE_SIZE);
     return { rows, total };
   }

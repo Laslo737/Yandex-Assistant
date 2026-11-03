@@ -6,11 +6,15 @@ import { AnalyticsStore } from '../../analytics/analytics.store';
 import { AnalyticsService } from '../../analytics/analytics.service';
 import { TrackerLoadError } from '../../../integrations/yandex-tracker/tracker-load';
 import { getManagerFocusIssueKeys } from '../presentation/manager.formatters';
+import { QueryService } from '../../query/application/query.service';
+import { DigestStore } from '../../digest/digest.store';
+import { DigestSubscriptions } from '../../digest/digest-subscriptions';
 import { YandexMessengerEvent, YandexMessengerReplyMessage } from '../../../interfaces/yandex-messenger/yandex-messenger.types';
 
 // Explicit non-production URL fixtures: formatter tests must also pass in a fresh checkout without .env.
 // Node's test runner isolates this file from other test workers.
 env.app.publicBaseUrl = 'https://assistant.example.test';
+env.app.shortLinksDatabasePath = ':memory:';
 env.tracker.webBaseUrl = 'https://tracker.example.test';
 
 type Deps = ConstructorParameters<typeof AssistantService>[0];
@@ -173,17 +177,54 @@ test('manager briefing and queue risks do not offer Changes buttons', async () =
   }
 });
 
-test('main menu retains Ask AI while Changes remains available only by explicit command', async () => {
+test('employee and manager menus hide Ask AI in buttons and welcome text', async () => {
+  for (const isManager of [false, true]) {
+    const { service, messages, deps } = setup();
+    deps.managerSummaryService.isManagerLogin = async () => isManager;
+    for (const command of ['Меню', '/start', 'помощь']) {
+      await service.handleEvent(event(command));
+      const message = messages.at(-1)!;
+      assert.ok(!message.buttons?.flat().some((button) => /спросить ai|изменения/i.test(button.text)));
+      assert.doesNotMatch(message.text, /Спросить AI|Q&A|изменений/);
+      assert.ok(message.buttons?.flat().some((button) => button.text === '🆘 Помощь с задачей'));
+      assert.equal(message.buttons?.flat().some((button) => button.text === '🧭 Сводка руководителя'), isManager);
+      assert.equal(message.buttons?.at(-1)?.[0]?.text, '📋 Меню');
+    }
+  }
+});
+
+test('Changes remains available only by explicit command', async () => {
   const { service, messages } = setup();
-  await service.handleEvent(event('Меню'));
-  assert.ok(messages[0].buttons?.flat().some((button) => button.text === '🤖 Спросить AI'));
-  assert.ok(!messages[0].buttons?.flat().some((button) => /изменения/i.test(button.text)));
-  assert.doesNotMatch(messages[0].text, /изменений/);
   await service.handleEvent(event('Изменения'));
-  assert.match(messages[1].text, /Что изменилось/);
+  assert.match(messages[0].text, /Что изменилось/);
   await service.handleEvent(event('изменения: мои задачи'));
-  assert.match(messages[2].text, /Выберите период/);
-  assert.ok(messages[2].buttons?.flat().some((button) => /Мои 24ч/.test(button.text)));
+  assert.match(messages[1].text, /Выберите период/);
+  assert.ok(messages[1].buttons?.flat().some((button) => /Мои 24ч/.test(button.text)));
+});
+
+test('digest and task help hide Ask AI; old AI commands remain compatible', async () => {
+  const { service, messages, deps } = setup();
+  deps.queryService = new QueryService();
+  deps.authorization.canReadIssue = async () => ({ allowed: true, reason: 'ISSUE_ROLE' });
+  deps.digestService = { getOnDemandDigestByLogin: async () => ({
+    employee: { totalAssigned: 1, activeAssigned: 1, overdueCount: 0, recentlyUpdatedCount: 0,
+      topTasks: [{ key: 'IT-1', summary: 'Test task', overdue: false }] }
+  }) } as unknown as Deps['digestService'];
+  deps.issueHelpService.handleMessage = async () => ({ issueKey: 'IT-1', request: 'test',
+    aiUsed: true, aiAnswer: 'Рабочий AI-разбор задачи',
+    contextPack: { meta: { commentsCount: 0, changelogCount: 0 },
+      heuristics: { probableCauses: [], recommendations: [] }, comments: [], changelog: [] }
+  }) as Awaited<ReturnType<Deps['issueHelpService']['handleMessage']>>;
+  for (const command of ['Дайджест', 'Почему IT-1 не двигается?', '🤖 Спросить AI']) {
+    await service.handleEvent(event(command));
+    const message = messages.at(-1)!;
+    assert.doesNotMatch(message.text, /Не удалось/);
+    assert.ok(!message.buttons?.flat().some((button) => /спросить ai/i.test(button.text)));
+    assert.equal(message.buttons?.at(-1)?.[0]?.text, '📋 Меню');
+  }
+  assert.ok(messages[0].buttons?.flat().some((button) => button.text === '🔎 Анализ IT-1'));
+  assert.match(messages[1].text, /Рабочий AI-разбор задачи/);
+  assert.match(messages[2].text, /Пока лучше всего/);
 });
 
 test('changes period buttons route to the matching scope and interval, including emoji variants', async () => {
@@ -195,6 +236,7 @@ test('changes period buttons route to the matching scope and interval, including
   for (const message of messages) {
     assert.match(message.text, /Что изменилось/);
     assert.doesNotMatch(message.text, /Пока лучше всего/);
+    assert.ok(!message.buttons?.flat().some((button) => /спросить ai/i.test(button.text)));
     assert.equal(message.buttons?.at(-1)?.[0]?.text, '📋 Меню');
   }
 });
@@ -219,6 +261,41 @@ test('overload during identity lookup replies safely instead of disappearing or 
   await service.handleEvent(event('Мой день'));
   assert.match(replies[0], /много обращений/);
   assert.doesNotMatch(replies[0], /подтвердить|TRACKER_QUEUE_FULL/);
+});
+
+test('digest contacts require verified private interaction; opt-out works even when Tracker is down', async () => {
+  const store = new DigestStore(':memory:');
+  try {
+    const { service, messages, deps } = setup();
+    deps.digestSubscriptions = new DigestSubscriptions(store, false, ['*']);
+    deps.dailyDigestService = { build: async (login: string, id: string, date: string) => {
+      assert.equal(login, 'test.user'); assert.equal(id, 'id-1'); assert.match(date, /^\d{4}-\d{2}-\d{2}$/);
+      return { text: 'Your morning report' };
+    } } as unknown as Deps['dailyDigestService'];
+    await service.handleEvent(event('меню', 'group'));
+    assert.equal(store.recipient('test.user'), undefined);
+    deps.authorization.resolveIdentity = async () => undefined;
+    await service.handleEvent(event('меню'));
+    assert.equal(store.recipient('test.user'), undefined);
+    deps.authorization.resolveIdentity = async () => ({ id: 'id-1', trackerLogin: 'test.user' });
+    await service.handleEvent(event('меню'));
+    assert.equal(store.recipient('test.user')?.enabled, true);
+    assert.ok(messages.at(-1)?.buttons?.flat().some((button) => button.text === '⚙️ Настройки дайджеста'));
+    await service.handleEvent(event('⚙️ Настройки дайджеста'));
+    assert.match(messages.at(-1)!.text, /По будням, 09:00–10:30 МСК/);
+    deps.authorization.resolveIdentity = async () => { throw new Error('Tracker down'); };
+    await service.handleEvent(event('🔕 Отключить дайджест'));
+    assert.equal(store.recipient('test.user')?.enabled, false);
+    assert.match(messages.at(-1)!.text, /отключён/);
+    deps.authorization.resolveIdentity = async () => ({ id: 'id-1', trackerLogin: 'test.user' });
+    await service.handleEvent(event('меню'));
+    assert.equal(store.recipient('test.user')?.enabled, false);
+    await service.handleEvent(event('🔔 Включить дайджест'));
+    assert.equal(store.recipient('test.user')?.enabled, true);
+    await service.handleEvent(event('📨 Дайджест на сегодня'));
+    assert.equal(messages.at(-1)?.text, 'Your morning report');
+    assert.equal(store.counts().length, 0, 'manual preview does not enqueue scheduled messages');
+  } finally { store.close(); }
 });
 
 test('normal private responses have exactly one Menu button at the bottom', async () => {

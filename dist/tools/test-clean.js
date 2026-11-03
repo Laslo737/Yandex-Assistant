@@ -22,7 +22,7 @@ try {
     });
     const environment = { ...process.env };
     for (const key of Object.keys(environment)) {
-        if (/^(APP_|ENABLE_|YANDEX_|LLM_|OPENROUTER_|ADMIN_|ANALYTICS_|TRACKER_|MY_DAY_|NODE_ENV$|PORT$)/.test(key)) {
+        if (/^(APP_|ENABLE_|YANDEX_|LLM_|OPENROUTER_|ADMIN_|ANALYTICS_|TRACKER_|MY_DAY_|DIGEST_|SHORT_LINKS_|NODE_ENV$|PORT$)/.test(key)) {
             delete environment[key];
         }
     }

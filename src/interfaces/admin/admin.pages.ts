@@ -33,12 +33,13 @@ export function overviewPage(store: AnalyticsStore, since: string, days: string)
     <div class="notice">Сбор данных включён ${date(startedAt)} UTC. Хранение подробной истории — ${retentionDays} дней. «Ответ отправлен» не является оценкой полезности. Отказы доступа не считаются техническими ошибками. Задержка включает обработку и отправку сообщения; незавершённые обращения исключены из p95.</div>`);
 }
 
-export function usersPage(store: AnalyticsStore, since: string, query: Record<string, string>, page: number) {
+export function usersPage(store: AnalyticsStore, since: string | null, query: Record<string, string>, page: number) {
   const { rows, total } = store.users(since, query.search, page);
+  const allUsers = since === null;
   return layout('users', 'Пользователи', 'Кто обращается к боту, возвращается ли снова и сталкивается ли с ошибками.',
-    `${filters(period(query.days) + input('search', 'Поиск по логину', query.search || '', 'Логин или его часть'), '/admin/users')}<section class="card"><div class="card-head"><h2>Участники</h2><span class="badge">${number(total)}</span></div>${table(
-      ['Пользователь', 'Первое обращение', 'Последнее обращение', 'Действия за период', 'Ошибки за период', ''], rows.map((row) => `<tr><td class="user"><strong>${e(row.login)}</strong></td><td>${date(row.first_seen)}</td><td>${date(row.last_seen)}</td><td>${number(row.total)}</td><td>${number(row.errors)}</td><td><a href="${link('/admin/activity', { user: String(row.user_key), days: query.days })}">История →</a></td></tr>`)
-    )}${pagination('/admin/users', query, page, total)}</section><p class="muted">Первое и последнее обращения — за сохранённую историю пользователя. Количество действий и ошибок — за выбранный период. Идентификатор отправителя предоставлен Messenger; это не доказательство подтверждённого аккаунта Tracker.</p>`);
+    `${filters(select('days', 'Период', { all: 'Все пользователи', ...periods }, query.days) + input('search', 'Поиск по логину', query.search || '', 'Логин или его часть'), '/admin/users')}<section class="card"><div class="card-head"><h2>Участники</h2><span class="badge">${number(total)}</span></div>${table(
+      ['Пользователь', 'Первое обращение', 'Последнее обращение', allUsers ? 'Сохранённые действия' : 'Действия за период', allUsers ? 'Сохранённые ошибки' : 'Ошибки за период', ''], rows.map((row) => `<tr><td class="user"><strong>${e(row.login)}</strong></td><td>${date(row.first_seen)}</td><td>${date(row.last_seen)}</td><td>${number(row.total)}</td><td>${number(row.errors)}</td><td><a href="${link('/admin/activity', { user: String(row.user_key), days: allUsers ? '30' : query.days })}">${allUsers ? 'История за 30 дней' : 'История'} →</a></td></tr>`)
+    )}${pagination('/admin/users', query, page, total)}</section><p class="muted">Пользователи и даты первого/последнего обращения хранятся бессрочно. Фильтры 24 часа / 7 / 30 дней показывают только обращавшихся за период. Счётчики учитывают только сохранённые действия, не весь срок использования: старая история удаляется по сроку хранения. Уже удалённые пользователи не восстанавливаются. Идентификатор отправителя предоставлен Messenger; это не доказательство подтверждённого аккаунта Tracker.</p>`);
 }
 
 function loadDetails(row: Record<string, unknown>) {

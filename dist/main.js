@@ -6,4 +6,5 @@ const app = (0, app_1.createApp)();
 const PORT = process.env.PORT || 3002;
 app.listen(Number(PORT), '127.0.0.1', () => {
     console.log(`${env_1.env.app.name} running on 127.0.0.1:${PORT}`);
+    app.locals.digestScheduler?.start();
 });

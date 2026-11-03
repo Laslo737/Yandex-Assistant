@@ -108,4 +108,5 @@ test('API failure and forbidden service-account fetch fail closed', async () => 
   } as unknown as ConstructorParameters<typeof IssueAuthorizationService>[0];
   const service = new IssueAuthorizationService(tracker);
   assert.equal((await service.canReadIssue('user', 'IT-1')).allowed, false);
+  await assert.rejects(service.filterReadableIssues('user', [issue], true), /Не удалось проверить доступ/);
 });

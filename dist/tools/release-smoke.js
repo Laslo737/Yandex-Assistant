@@ -1,12 +1,15 @@
 "use strict";
 // Offline smoke: force integrations/admin OFF before loading app/env, even if a production .env exists.
 async function main() {
-    for (const name of ['ENABLE_YANDEX', 'ENABLE_YANDEX_MESSENGER', 'ENABLE_YANDEX_TRACKER', 'ENABLE_ADMIN']) {
+    for (const name of ['ENABLE_YANDEX', 'ENABLE_YANDEX_MESSENGER', 'ENABLE_YANDEX_TRACKER', 'ENABLE_ADMIN', 'ENABLE_DAILY_DIGEST']) {
         process.env[name] = 'false';
     }
     process.env.LLM_PROVIDER = 'mock';
     const { createApp } = require('../app');
-    const server = createApp().listen(0, '127.0.0.1');
+    const app = createApp();
+    if (app.locals.digestScheduler)
+        throw new Error('OFFLINE_DIGEST_NOT_DISABLED');
+    const server = app.listen(0, '127.0.0.1');
     try {
         await new Promise((resolve, reject) => { server.once('listening', resolve); server.once('error', reject); });
         const port = server.address().port;
@@ -22,7 +25,7 @@ async function main() {
             if (result.status !== 404)
                 throw new Error('OFFLINE_ROUTES_NOT_DISABLED');
         }
-        console.info('RELEASE_SMOKE_OK: health works; Messenger, Tracker and admin disabled; ephemeral loopback port');
+        console.info('RELEASE_SMOKE_OK: health works; Messenger, Tracker, admin and scheduled digest disabled; ephemeral loopback port');
     }
     finally {
         server.closeAllConnections();

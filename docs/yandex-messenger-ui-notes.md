@@ -112,6 +112,8 @@
 Из-за лимита текста и длинных query URLs в проекте реализован backend short-link слой:
 - endpoint: `/r/:token`
 - token -> redirect в длинный Tracker URL
+- новые токены сохраняются в SQLite (`SHORT_LINKS_DB_PATH`) и переживают рестарт;
+  старые ссылки из прежнего in-memory хранилища автоматически не восстанавливаются
 
 ### Практический вывод
 - для metric deep-links использовать short links;

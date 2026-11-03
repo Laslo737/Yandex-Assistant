@@ -1,7 +1,7 @@
 import { YandexMessengerClient } from './yandex-messenger.client';
 import { YandexMessengerEvent, YandexMessengerReplyMessage } from './yandex-messenger.types';
 
-function mapButtons(buttonRows: Array<Array<{ text: string }>> = []) {
+export function mapButtons(buttonRows: Array<Array<{ text: string }>> = []) {
   return {
     layout: true,
     persist: false,

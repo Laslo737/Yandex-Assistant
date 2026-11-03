@@ -63,6 +63,11 @@ async function withTrackerDeadline(milliseconds, action) {
     try {
         return await exports.trackerExecution.run(controller.signal, () => abortable(controller.signal, action));
     }
+    catch (error) {
+        // A failed aggregate must not leave sibling ACL/page requests running without their deadline.
+        controller.abort(error);
+        throw error;
+    }
     finally {
         clearTimeout(timer);
         // Allow cancelled queue/HTTP promises to record their counters before the enclosing activity finishes.

@@ -99,7 +99,56 @@ test('store: restart persistence, consistent backup and retention', () => {
     store.cleanup(Date.now() + 3 * 86400_000);
     assert.equal(store.activities({ since }).total, 0);
     assert.equal(store.users(since).total, 0);
+    const saved = store.users(null).rows[0];
+    assert.equal(store.users(null).total, 1);
+    assert.equal(saved.total, 0);
+    assert.equal(saved.errors, 0);
+    store.close(); store = new AnalyticsStore(path, 2);
+    assert.deepEqual(store.users(null).rows[0], saved);
+    const usersSnapshot = join(directory, 'users-backup.sqlite'); store.backup(usersSnapshot);
+    const usersRestored = new AnalyticsStore(usersSnapshot, 2);
+    try { assert.deepEqual(usersRestored.users(null).rows[0], saved); } finally { usersRestored.close(); }
+    const returning = activity('returning'); returning.startedAt = new Date(Date.now() + 4 * 86400_000).toISOString();
+    returning.login = 'renamed@example.com';
+    store.begin(returning); store.finish(returning);
+    const updated = store.users(null).rows[0];
+    assert.equal(updated.first_seen, saved.first_seen);
+    assert.equal(updated.last_seen, returning.startedAt);
+    assert.equal(updated.login, returning.login);
+    assert.equal(updated.total, 1);
+    assert.equal(store.users(null).total, 1);
   } finally { store.close(); rmSync(directory, { recursive: true, force: true }); }
+});
+
+test('all users: expired events keep identities, zero counts, literal search and pagination', () => {
+  const store = new AnalyticsStore(':memory:', 2);
+  try {
+    const oldDate = new Date(Date.now() - 4 * 86400_000).toISOString();
+    for (let i = 0; i < 35; i++) {
+      const row = { ...activity(`old-${i}`), userKey: `old-${i}`, login: `old-${i}@example.test`, startedAt: oldDate };
+      store.begin(row); store.finish(row);
+    }
+    const active = { ...activity('active'), userKey: 'active', login: 'active@example.test' };
+    store.begin(active); store.finish(active);
+    store.cleanup(Date.now() + 3600_000);
+    assert.equal(store.activities({ since }).total, 1);
+    assert.equal(store.users(since).total, 1);
+    assert.equal(store.users(null).total, 36);
+    const firstPage = store.users(null).rows;
+    const secondPage = store.users(null, '', 2).rows;
+    assert.equal(firstPage.length, 30);
+    assert.equal(secondPage.length, 6);
+    assert.equal(new Set([...firstPage, ...secondPage].map((row) => row.user_key)).size, 36);
+    assert.equal(firstPage[0].user_key, 'active');
+    assert.equal(firstPage[0].total, 1);
+    assert.equal(firstPage[1].total, 0);
+    assert.equal(firstPage[1].errors, 0);
+    assert.equal(firstPage[1].first_seen, oldDate);
+    assert.equal(firstPage[1].last_seen, oldDate);
+    assert.equal(store.users(null, 'OLD-').total, 35);
+    assert.equal(store.users(null, '%').total, 0);
+    assert.equal(store.users(null, "' OR 1=1 --").total, 0);
+  } finally { store.close(); }
 });
 
 test('telemetry isolates concurrent requests, stores no messages and keeps delivery errors', async () => {

@@ -1,14 +1,16 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.TrackerDispatcher = void 0;
+exports.TrackerDispatcher = exports.trackerBackground = void 0;
 const node_async_hooks_1 = require("node:async_hooks");
 const request_metrics_1 = require("../../core/analytics/request-metrics");
 const tracker_load_1 = require("./tracker-load");
-/** FIFO HTTP-attempt scheduler. All Tracker clients in this process share the default instance. */
+exports.trackerBackground = new node_async_hooks_1.AsyncLocalStorage();
+/** Interactive-first HTTP-attempt scheduler. All Tracker clients in this process share the default instance. */
 class TrackerDispatcher {
     options;
     queue = [];
     active = 0;
+    backgroundActive = 0;
     nextStartAt = 0;
     cooldownUntil = 0;
     timer;
@@ -35,6 +37,7 @@ class TrackerDispatcher {
             return Promise.reject((0, tracker_load_1.abortReason)(parent));
         if (this.queue.length >= this.options.maxQueue)
             return Promise.reject(new tracker_load_1.TrackerLoadError('TRACKER_QUEUE_FULL'));
+        const background = exports.trackerBackground.getStore() === true;
         const enqueuedAt = performance.now();
         return new Promise((resolve, reject) => {
             let waiting = true;
@@ -47,6 +50,7 @@ class TrackerDispatcher {
                     metrics.queueWaitMs += Math.round(performance.now() - enqueuedAt);
             };
             const pending = {
+                background,
                 fail: node_async_hooks_1.AsyncLocalStorage.bind((error) => {
                     if (!waiting)
                         return;
@@ -60,12 +64,16 @@ class TrackerDispatcher {
                 start: node_async_hooks_1.AsyncLocalStorage.bind(() => {
                     finishWait();
                     this.active++;
+                    if (background)
+                        this.backgroundActive++;
                     const controller = new AbortController();
                     const signal = parent ? AbortSignal.any([parent, controller.signal]) : controller.signal;
                     const timeout = setTimeout(() => controller.abort(new tracker_load_1.TrackerLoadError('TRACKER_REQUEST_TIMEOUT')), this.options.requestTimeoutMs);
                     void (0, tracker_load_1.abortable)(signal, () => job(signal)).then(resolve, reject).finally(() => {
                         clearTimeout(timeout);
                         this.active--;
+                        if (background)
+                            this.backgroundActive--;
                         this.pump();
                     });
                 })
@@ -92,7 +100,15 @@ class TrackerDispatcher {
             this.timer = setTimeout(() => { this.timer = undefined; this.pump(); }, Math.min(2147483647, Math.ceil(delay)));
             return;
         }
-        const next = this.queue.shift();
+        // Background work uses at most ONE HTTP slot; interactive requests jump ahead of it.
+        // With concurrency > 1 this reserves the remaining slots for normal bot clicks.
+        let index = this.queue.findIndex((pending) => !pending.background);
+        if (index === -1) {
+            if (this.backgroundActive >= 1)
+                return;
+            index = 0;
+        }
+        const [next] = this.queue.splice(index, 1);
         this.nextStartAt = now + this.options.minIntervalMs;
         next.start();
         this.pump();
