@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.ManagerSummaryService = void 0;
+const active_issues_1 = require("../../../integrations/yandex-tracker/active-issues");
 function toDate(value) {
     if (!value)
         return null;
@@ -92,43 +93,6 @@ function isQueueLead(queueLead, user) {
     if (queueLead.passportUid !== undefined && identities.has(String(queueLead.passportUid)))
         return true;
     return false;
-}
-function parseNextIdFromLinkHeader(linkHeader) {
-    if (!linkHeader)
-        return undefined;
-    const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/i);
-    if (!nextMatch?.[1])
-        return undefined;
-    try {
-        const url = new URL(nextMatch[1]);
-        return url.searchParams.get('id') || undefined;
-    }
-    catch {
-        return undefined;
-    }
-}
-async function fetchAllIssuesByQueue(trackerClient, queueKey, fields) {
-    const perPage = 100;
-    const issuesById = new Map();
-    let cursorId;
-    while (true) {
-        const result = await trackerClient.searchIssues({
-            queue: queueKey,
-            order: '-updatedAt'
-        }, {
-            fields,
-            perPage,
-            id: cursorId
-        });
-        for (const issue of result.issues) {
-            issuesById.set(issue.id, issue);
-        }
-        const nextId = parseNextIdFromLinkHeader(result.pagination.nextLink);
-        if (!nextId || String(nextId) === String(cursorId))
-            break;
-        cursorId = nextId;
-    }
-    return Array.from(issuesById.values());
 }
 class ManagerSummaryService {
     trackerClient;
@@ -238,18 +202,21 @@ class ManagerSummaryService {
             'assignee',
             'updatedAt',
             'deadline',
-            'queue'
+            'queue',
+            ...active_issues_1.ISSUE_AUTH_FIELDS
         ];
         const context = await this.getManagerContextByLogin(login);
         const manager = context.manager;
         const managerQueues = context.queues;
         const statuses = await this.getStatuses();
         const terminalStatuses = statuses.filter((status) => status.type === 'done' || status.type === 'cancelled');
+        const terminalStatusNames = terminalStatuses.map((status) => status.name || status.key || String(status.id)).filter(Boolean);
         const doneStatusIds = new Set(terminalStatuses.map((status) => String(status.id)));
         const doneStatusKeys = new Set(terminalStatuses.filter((status) => status.key).map((status) => String(status.key)));
         const issuesByQueue = await Promise.all(managerQueues.map(async (queue) => ({
             queue,
-            issues: await this.authorization.filterReadableIssues(userId, await fetchAllIssuesByQueue(this.trackerClient, queue.key, fields))
+            issues: await this.authorization.filterReadableSearchIssues(userId, (await (0, active_issues_1.fetchActiveIssuesByQueue)(this.trackerClient, queue.key, terminalStatusNames, fields))
+                .filter((issue) => !isDone(issue, doneStatusIds, doneStatusKeys)))
         })));
         const allIssues = issuesByQueue.flatMap((item) => item.issues);
         const activeIssues = allIssues.filter((issue) => !isDone(issue, doneStatusIds, doneStatusKeys));
@@ -274,8 +241,9 @@ class ManagerSummaryService {
             login,
             manager,
             queues: managerQueues.map((queue) => ({ key: queue.key, name: queue.name })),
-            terminalStatusNames: terminalStatuses.map((status) => status.name || status.key || String(status.id)).filter(Boolean),
-            totalIssues: allIssues.length,
+            terminalStatusNames,
+            // Compatibility alias: summaries now contain only active tasks.
+            totalIssues: activeIssues.length,
             activeIssues: activeIssues.length,
             problematicCount: tasks.filter((task) => task.overdue || task.stale).length,
             overdueCount: tasks.filter((task) => task.overdue).length,

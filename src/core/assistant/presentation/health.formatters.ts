@@ -1,7 +1,6 @@
 import { formatTrackerIssueLabel } from '../../../shared/utils/tracker-links';
 import {
   buildTeamActiveIssuesUrl,
-  buildTeamAllIssuesUrl,
   buildTeamOverdueIssuesUrl,
   buildTeamStaleIssuesUrl,
   formatMetricLink
@@ -119,8 +118,7 @@ function formatQueueHighlightLine(
     `• ${queue.key}: ${softenStatusLabel(queue.healthLabel)}`,
     formatMetricLink(`активных ${queue.active}`, buildTeamActiveIssuesUrl(queueKeys, terminalStatusNames)),
     formatMetricLink(`просрочено ${queue.overdue}`, buildTeamOverdueIssuesUrl(queueKeys, terminalStatusNames)),
-    formatMetricLink(`без движения ${queue.stale}`, buildTeamStaleIssuesUrl(queueKeys, terminalStatusNames)),
-    formatMetricLink('все задачи', buildTeamAllIssuesUrl(queueKeys))
+    formatMetricLink(`без движения ${queue.stale}`, buildTeamStaleIssuesUrl(queueKeys, terminalStatusNames))
   ].join(' — ');
 }
 

@@ -1,12 +1,14 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.buildMyAllIssuesUrl = buildMyAllIssuesUrl;
+exports.buildMyActiveIssuesQuery = buildMyActiveIssuesQuery;
 exports.buildMyActiveIssuesUrl = buildMyActiveIssuesUrl;
 exports.buildMyClosedIssuesUrl = buildMyClosedIssuesUrl;
 exports.buildMyDueTodayIssuesUrl = buildMyDueTodayIssuesUrl;
 exports.buildMyOverdueIssuesUrl = buildMyOverdueIssuesUrl;
 exports.buildMyRecentlyUpdatedIssuesUrl = buildMyRecentlyUpdatedIssuesUrl;
 exports.buildTeamAllIssuesUrl = buildTeamAllIssuesUrl;
+exports.buildTeamActiveIssuesQuery = buildTeamActiveIssuesQuery;
 exports.buildTeamActiveIssuesUrl = buildTeamActiveIssuesUrl;
 exports.buildTeamOverdueIssuesUrl = buildTeamOverdueIssuesUrl;
 exports.buildTeamStaleIssuesUrl = buildTeamStaleIssuesUrl;
@@ -56,11 +58,11 @@ function buildIssuesUrl(query, order = 'updated DESC') {
 function buildMyAllIssuesUrl(login) {
     return buildIssuesUrl(`Assignee: ${exactLogin(login)}`);
 }
+function buildMyActiveIssuesQuery(login, terminalStatuses) {
+    return joinClauses([`Assignee: ${exactLogin(login)}`, excludeStatusesClause(terminalStatuses)]);
+}
 function buildMyActiveIssuesUrl(login, terminalStatuses) {
-    return buildIssuesUrl(joinClauses([
-        `Assignee: ${exactLogin(login)}`,
-        excludeStatusesClause(terminalStatuses)
-    ]));
+    return buildIssuesUrl(buildMyActiveIssuesQuery(login, terminalStatuses));
 }
 function buildMyClosedIssuesUrl(login, terminalStatuses) {
     return buildIssuesUrl(joinClauses([
@@ -104,11 +106,11 @@ function queueClause(queueKeys) {
 function buildTeamAllIssuesUrl(queueKeys) {
     return buildIssuesUrl(`${queueClause(queueKeys)}`);
 }
+function buildTeamActiveIssuesQuery(queueKeys, terminalStatuses) {
+    return joinClauses([queueClause(queueKeys), excludeStatusesClause(terminalStatuses)]);
+}
 function buildTeamActiveIssuesUrl(queueKeys, terminalStatuses) {
-    return buildIssuesUrl(joinClauses([
-        queueClause(queueKeys),
-        excludeStatusesClause(terminalStatuses)
-    ]));
+    return buildIssuesUrl(buildTeamActiveIssuesQuery(queueKeys, terminalStatuses));
 }
 function buildTeamOverdueIssuesUrl(queueKeys, terminalStatuses) {
     return buildIssuesUrl(joinClauses([

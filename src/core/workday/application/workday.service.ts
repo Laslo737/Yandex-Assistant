@@ -3,6 +3,7 @@ import { CacheBusyError, ExpiringCache, CacheSource } from '../../../shared/util
 import { dataSource } from '../../analytics/request-metrics';
 import { TrackerLoadError, withTrackerDeadline } from '../../../integrations/yandex-tracker/tracker-load';
 import { TrackerApiClient } from '../../../integrations/yandex-tracker/tracker.client';
+import { fetchActiveIssuesByAssignee, ISSUE_AUTH_FIELDS } from '../../../integrations/yandex-tracker/active-issues';
 import { IssueAuthorizationService } from '../../authorization/application/issue-authorization.service';
 import { TrackerIssue, TrackerStatus } from '../../../integrations/yandex-tracker/tracker.types';
 
@@ -104,42 +105,6 @@ function buildAssigneeCandidates(login: string): string[] {
   ].filter(Boolean)));
 }
 
-export async function fetchAllIssuesByAssignee(
-  trackerClient: TrackerApiClient,
-  assignee: string,
-  fields: string[]
-): Promise<TrackerIssue[]> {
-  const issuesById = new Map<string, TrackerIssue>();
-  const perPage = 100;
-  let page = 1;
-  let totalPages = 1;
-
-  do {
-    const result = await trackerClient.searchIssues(
-      {
-        filter: {
-          assignee
-        },
-        order: '-updatedAt'
-      },
-      {
-        fields,
-        perPage,
-        page
-      }
-    );
-
-    for (const issue of result.issues) {
-      issuesById.set(issue.id, issue);
-    }
-
-    totalPages = Math.max(result.pagination.totalPages || 1, 1);
-    page += 1;
-  } while (page <= totalPages);
-
-  return Array.from(issuesById.values());
-}
-
 export class WorkdayService {
   private statusesCache: { expiresAt: number; value: TrackerStatus[] } | null = null;
   private statusesInFlight?: Promise<TrackerStatus[]>;
@@ -215,6 +180,8 @@ export class WorkdayService {
     ]);
 
     const terminalStatuses = statuses.filter((status) => status.type === 'done' || status.type === 'cancelled');
+    const terminalStatusNames = terminalStatuses.map((status) => status.name || status.key || String(status.id)).filter(Boolean);
+    if (!options.skipIssueAuthorization) fields.push(...ISSUE_AUTH_FIELDS);
     const doneStatusIds = new Set(terminalStatuses.map((status) => String(status.id)));
     const doneStatusKeys = new Set(
       terminalStatuses.filter((status) => status.key).map((status) => String(status.key))
@@ -225,13 +192,13 @@ export class WorkdayService {
     let bestScore = -1;
 
     for (const candidate of assigneeCandidates) {
-      const assignedToUser = (await fetchAllIssuesByAssignee(this.trackerClient, candidate, fields))
-        .filter((issue) => issue.assignee?.id === userId);
+      const assignedToUser = (await fetchActiveIssuesByAssignee(this.trackerClient, candidate, terminalStatusNames, fields))
+        .filter((issue) => issue.assignee?.id === userId && !isDone(issue, doneStatusIds, doneStatusKeys));
       // MVP demo: the interactive "My day" skips per-issue ACL checks, but never the
       // exact assignee ID check. Digest and other callers retain authorization.
       const issues = options.skipIssueAuthorization
         ? assignedToUser
-        : await this.authorization.filterReadableIssues(userId, assignedToUser);
+        : await this.authorization.filterReadableSearchIssues(userId, assignedToUser);
       const activeIssuesForCandidate = issues.filter((issue) => !isDone(issue, doneStatusIds, doneStatusKeys));
       const score = activeIssuesForCandidate.length * 100000 + issues.length;
 
@@ -257,8 +224,9 @@ export class WorkdayService {
       login,
       assigneeCandidates,
       matchedAssigneeCandidate,
-      terminalStatusNames: terminalStatuses.map((status) => status.name || status.key || String(status.id)).filter(Boolean),
-      totalAssigned: assignedIssues.length,
+      terminalStatusNames,
+      // Legacy field retained for internal callers; operational reports contain active tasks only.
+      totalAssigned: activeIssues.length,
       activeAssigned: activeIssues.length,
       overdueCount,
       recentlyUpdatedCount,

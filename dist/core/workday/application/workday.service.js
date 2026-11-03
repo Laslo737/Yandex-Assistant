@@ -2,11 +2,11 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.WorkdayService = void 0;
 exports.isDone = isDone;
-exports.fetchAllIssuesByAssignee = fetchAllIssuesByAssignee;
 const env_1 = require("../../../config/env");
 const expiring_cache_1 = require("../../../shared/utils/expiring-cache");
 const request_metrics_1 = require("../../analytics/request-metrics");
 const tracker_load_1 = require("../../../integrations/yandex-tracker/tracker-load");
+const active_issues_1 = require("../../../integrations/yandex-tracker/active-issues");
 function toDate(value) {
     if (!value)
         return null;
@@ -83,30 +83,6 @@ function buildAssigneeCandidates(login) {
         localPart
     ].filter(Boolean)));
 }
-async function fetchAllIssuesByAssignee(trackerClient, assignee, fields) {
-    const issuesById = new Map();
-    const perPage = 100;
-    let page = 1;
-    let totalPages = 1;
-    do {
-        const result = await trackerClient.searchIssues({
-            filter: {
-                assignee
-            },
-            order: '-updatedAt'
-        }, {
-            fields,
-            perPage,
-            page
-        });
-        for (const issue of result.issues) {
-            issuesById.set(issue.id, issue);
-        }
-        totalPages = Math.max(result.pagination.totalPages || 1, 1);
-        page += 1;
-    } while (page <= totalPages);
-    return Array.from(issuesById.values());
-}
 class WorkdayService {
     trackerClient;
     authorization;
@@ -175,19 +151,22 @@ class WorkdayService {
             Promise.resolve(options.assigneeLogin ? [options.assigneeLogin] : buildAssigneeCandidates(login))
         ]);
         const terminalStatuses = statuses.filter((status) => status.type === 'done' || status.type === 'cancelled');
+        const terminalStatusNames = terminalStatuses.map((status) => status.name || status.key || String(status.id)).filter(Boolean);
+        if (!options.skipIssueAuthorization)
+            fields.push(...active_issues_1.ISSUE_AUTH_FIELDS);
         const doneStatusIds = new Set(terminalStatuses.map((status) => String(status.id)));
         const doneStatusKeys = new Set(terminalStatuses.filter((status) => status.key).map((status) => String(status.key)));
         let matchedAssigneeCandidate;
         let assignedIssues = [];
         let bestScore = -1;
         for (const candidate of assigneeCandidates) {
-            const assignedToUser = (await fetchAllIssuesByAssignee(this.trackerClient, candidate, fields))
-                .filter((issue) => issue.assignee?.id === userId);
+            const assignedToUser = (await (0, active_issues_1.fetchActiveIssuesByAssignee)(this.trackerClient, candidate, terminalStatusNames, fields))
+                .filter((issue) => issue.assignee?.id === userId && !isDone(issue, doneStatusIds, doneStatusKeys));
             // MVP demo: the interactive "My day" skips per-issue ACL checks, but never the
             // exact assignee ID check. Digest and other callers retain authorization.
             const issues = options.skipIssueAuthorization
                 ? assignedToUser
-                : await this.authorization.filterReadableIssues(userId, assignedToUser);
+                : await this.authorization.filterReadableSearchIssues(userId, assignedToUser);
             const activeIssuesForCandidate = issues.filter((issue) => !isDone(issue, doneStatusIds, doneStatusKeys));
             const score = activeIssuesForCandidate.length * 100000 + issues.length;
             if (score > bestScore) {
@@ -208,8 +187,9 @@ class WorkdayService {
             login,
             assigneeCandidates,
             matchedAssigneeCandidate,
-            terminalStatusNames: terminalStatuses.map((status) => status.name || status.key || String(status.id)).filter(Boolean),
-            totalAssigned: assignedIssues.length,
+            terminalStatusNames,
+            // Legacy field retained for internal callers; operational reports contain active tasks only.
+            totalAssigned: activeIssues.length,
             activeAssigned: activeIssues.length,
             overdueCount,
             recentlyUpdatedCount,

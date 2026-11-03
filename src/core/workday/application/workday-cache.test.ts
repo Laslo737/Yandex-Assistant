@@ -12,14 +12,14 @@ const interactive = (assigneeLogin: string) => ({ skipIssueAuthorization: true, 
 function setup(extra = {}) {
   let searches = 0, statuses = 0, acl = 0;
   const tracker = {
-    getStatuses: async () => { statuses++; await sleep(1); return []; },
-    searchIssues: async (payload: { filter: { assignee: string } }) => {
+    getStatuses: async () => { statuses++; await sleep(1); return [{ id: 'done', name: 'Done', type: 'done' }]; },
+    searchIssues: async (payload: { query: string }) => {
       searches++; await sleep(3);
-      const login = payload.filter.assignee;
+      const login = payload.query.match(/^Assignee: (\S+?)@ /)![1];
       return { issues: [{ id: login, key: `TEST-${login}`, assignee: { id: login }, summary: login }], pagination: { totalPages: 1 } };
     }
   };
-  const authorization = { filterReadableIssues: async () => { acl++; return []; } };
+  const authorization = { filterReadableSearchIssues: async () => { acl++; return []; } };
   const service = new WorkdayService(tracker as unknown as TrackerApiClient,
     authorization as unknown as IssueAuthorizationService, { ...options, ...extra });
   return { service, tracker, counts: () => ({ searches, statuses, acl }) };

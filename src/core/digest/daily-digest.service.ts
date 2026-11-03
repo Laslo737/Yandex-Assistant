@@ -1,16 +1,17 @@
 import { TrackerApiClient } from '../../integrations/yandex-tracker/tracker.client';
 import { IssueAuthorizationService } from '../authorization/application/issue-authorization.service';
-import { fetchAllIssuesByAssignee, isDone, WorkdayService } from '../workday/application/workday.service';
+import { isDone, WorkdayService } from '../workday/application/workday.service';
+import { fetchActiveIssuesByAssignee, ISSUE_AUTH_FIELDS } from '../../integrations/yandex-tracker/active-issues';
 import { dateOnly, nextDate, priorityRank } from './digest-calendar';
 import { formatTrackerIssueLabel } from '../../shared/utils/tracker-links';
-import { buildMyAllIssuesUrl, buildMyDueTodayIssuesUrl, buildMyOverdueIssuesUrl, formatMetricLink } from '../../shared/utils/tracker-query-links';
+import { buildMyActiveIssuesUrl, buildMyDueTodayIssuesUrl, buildMyOverdueIssuesUrl, formatMetricLink } from '../../shared/utils/tracker-query-links';
 import { YandexMessengerReplyMessage } from '../../interfaces/yandex-messenger/yandex-messenger.types';
 
 export interface DailyTask {
   key: string; summary?: string; deadline?: string; priority?: string; priorityKey?: string;
 }
 export interface DailyDigestData {
-  date: string; login: string; total: number; today: number; overdue: number; active: number;
+  date: string; login: string; today: number; overdue: number; active: number;
   terminalStatuses: string[]; focus: Array<{ task: DailyTask; reason: string }>;
 }
 export function selectDailyFocus(tasks: DailyTask[], date: string): DailyDigestData['focus'] {
@@ -48,26 +49,23 @@ export class DailyDigestService {
   async build(login: string, expectedTrackerId: string, date: string): Promise<YandexMessengerReplyMessage> {
     const identity = await this.authorization.resolveIdentity(login);
     if (!identity || identity.id !== expectedTrackerId) throw new Error('DIGEST_IDENTITY_NOT_CONFIRMED');
-    const [statuses, assigned] = await Promise.all([
-      this.workday.getStatuses(),
-      fetchAllIssuesByAssignee(this.tracker, identity.trackerLogin,
-        ['summary', 'status', 'statusType', 'assignee', 'priority', 'deadline', 'queue',
-          'createdBy', 'followers', 'access', 'components'])
-    ]);
+    const statuses = await this.workday.getStatuses();
     if (!Array.isArray(statuses) || !statuses.length) throw new Error('DIGEST_STATUSES_UNAVAILABLE');
-    const own = assigned.filter((issue) => issue.assignee?.id === identity.id);
-    // Unlike the explicitly simplified interactive My day, scheduled reports never bypass ACL.
-    const readable = await this.authorization.filterReadableSearchIssues(identity.id, own, true);
     const terminal = statuses.filter((status) => status.type === 'done' || status.type === 'cancelled');
+    const terminalStatusNames = terminal.map((status) => status.name || status.key || String(status.id));
     const ids = new Set(terminal.map((status) => String(status.id)));
     const keys = new Set(terminal.map((status) => status.key).filter((key): key is string => Boolean(key)));
-    const active = readable.filter((issue) => !isDone(issue, ids, keys));
+    const assigned = await fetchActiveIssuesByAssignee(this.tracker, identity.trackerLogin, terminalStatusNames,
+      ['summary', 'status', 'statusType', 'assignee', 'priority', 'deadline', 'queue', ...ISSUE_AUTH_FIELDS]);
+    const own = assigned.filter((issue) => issue.assignee?.id === identity.id && !isDone(issue, ids, keys));
+    // Unlike the explicitly simplified interactive My day, scheduled reports never bypass ACL.
+    const active = await this.authorization.filterReadableSearchIssues(identity.id, own, true);
     const tasks = active.map((issue): DailyTask => ({ key: issue.key, summary: issue.summary,
       deadline: dateOnly(issue.deadline), priority: issue.priority?.display, priorityKey: issue.priority?.key }));
-    return formatDailyDigest({ date, login: identity.trackerLogin, total: readable.length,
+    return formatDailyDigest({ date, login: identity.trackerLogin,
       today: tasks.filter((task) => task.deadline === date).length,
       overdue: tasks.filter((task) => task.deadline && task.deadline < date).length,
-      active: active.length, terminalStatuses: terminal.map((status) => status.name || status.key || String(status.id)),
+      active: active.length, terminalStatuses: terminalStatusNames,
       focus: selectDailyFocus(tasks, date) });
   }
 }
@@ -79,7 +77,7 @@ export function formatDailyDigest(data: DailyDigestData): YandexMessengerReplyMe
   const displayDate = data.date.split('-').reverse().join('.');
   const lines = [
     `☀️ **Ваш день · ${displayDate}**`, '',
-    `📋 ${formatMetricLink(`Всего задач на мне: ${data.total}`, buildMyAllIssuesUrl(data.login))}`,
+    `📋 ${formatMetricLink(`Активных задач на мне: ${data.active}`, buildMyActiveIssuesUrl(data.login, data.terminalStatuses))}`,
     `📅 ${formatMetricLink(`С дедлайном сегодня: ${data.today}`, buildMyDueTodayIssuesUrl(data.login, data.terminalStatuses, data.date))}`,
     `⏰ ${formatMetricLink(`Просроченные: ${data.overdue}`, buildMyOverdueIssuesUrl(data.login, data.terminalStatuses, data.date))}`,
     '', '**Обратить внимание**', ''

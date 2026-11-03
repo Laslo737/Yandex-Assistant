@@ -52,11 +52,12 @@ export function buildMyAllIssuesUrl(login: string): string {
   return buildIssuesUrl(`Assignee: ${exactLogin(login)}`);
 }
 
+export function buildMyActiveIssuesQuery(login: string, terminalStatuses: string[]): string {
+  return joinClauses([`Assignee: ${exactLogin(login)}`, excludeStatusesClause(terminalStatuses)]);
+}
+
 export function buildMyActiveIssuesUrl(login: string, terminalStatuses: string[]): string {
-  return buildIssuesUrl(joinClauses([
-    `Assignee: ${exactLogin(login)}`,
-    excludeStatusesClause(terminalStatuses)
-  ]));
+  return buildIssuesUrl(buildMyActiveIssuesQuery(login, terminalStatuses));
 }
 
 export function buildMyClosedIssuesUrl(login: string, terminalStatuses: string[]): string {
@@ -106,11 +107,12 @@ export function buildTeamAllIssuesUrl(queueKeys: string[]): string {
   return buildIssuesUrl(`${queueClause(queueKeys)}`);
 }
 
+export function buildTeamActiveIssuesQuery(queueKeys: string[], terminalStatuses: string[]): string {
+  return joinClauses([queueClause(queueKeys), excludeStatusesClause(terminalStatuses)]);
+}
+
 export function buildTeamActiveIssuesUrl(queueKeys: string[], terminalStatuses: string[]): string {
-  return buildIssuesUrl(joinClauses([
-    queueClause(queueKeys),
-    excludeStatusesClause(terminalStatuses)
-  ]));
+  return buildIssuesUrl(buildTeamActiveIssuesQuery(queueKeys, terminalStatuses));
 }
 
 export function buildTeamOverdueIssuesUrl(queueKeys: string[], terminalStatuses: string[]): string {

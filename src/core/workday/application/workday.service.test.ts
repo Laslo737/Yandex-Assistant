@@ -6,7 +6,7 @@ import { WorkdayService } from './workday.service';
 
 test('Digest/default workday counts only authorized issues assigned to the resolved Tracker ID', async () => {
   const tracker = {
-    getStatuses: async () => [],
+    getStatuses: async () => [{ id: 'done', name: 'Done', type: 'done' }],
     searchIssues: async () => ({ issues: [
       { id: '1', key: 'IT-1', assignee: { id: 'my-id' }, summary: 'Mine' },
       { id: '2', key: 'IT-2', assignee: { id: 'other-id' }, summary: 'Someone else' },
@@ -14,7 +14,7 @@ test('Digest/default workday counts only authorized issues assigned to the resol
     ], pagination: { totalPages: 1 } })
   } as unknown as TrackerApiClient;
   const authorization = {
-    filterReadableIssues: async (_id: string, issues: Array<{ key: string }>) =>
+    filterReadableSearchIssues: async (_id: string, issues: Array<{ key: string }>) =>
       issues.filter((issue) => issue.key !== 'IT-3')
   } as unknown as IssueAuthorizationService;
   const result = await new WorkdayService(tracker, authorization).getMyDayByLogin('test.user', 'my-id');
@@ -26,9 +26,10 @@ test('Digest/default workday counts only authorized issues assigned to the resol
 test('interactive My day uses one verified Tracker login and excludes another assignee', async () => {
   const searches: string[] = [];
   const tracker = {
-    getStatuses: async () => [],
-    searchIssues: async (payload: { filter: { assignee: string } }) => {
-      searches.push(payload.filter.assignee);
+    getStatuses: async () => [{ id: 'done', name: 'Done', type: 'done' }],
+    searchIssues: async (payload: { query: string; filter?: unknown }) => {
+      assert.equal(payload.filter, undefined);
+      searches.push(payload.query);
       return { issues: [
       { id: '1', key: 'IT-1', assignee: { id: 'my-id' } },
       { id: '2', key: 'IT-2', assignee: { id: 'other-id' } },
@@ -37,12 +38,12 @@ test('interactive My day uses one verified Tracker login and excludes another as
     }
   } as unknown as TrackerApiClient;
   const authorization = {
-    filterReadableIssues: async () => { throw new Error('ACL must not run for interactive My day'); }
+    filterReadableSearchIssues: async () => { throw new Error('ACL must not run for interactive My day'); }
   } as unknown as IssueAuthorizationService;
   const result = await new WorkdayService(tracker, authorization).getMyDayByLogin(
     'test.user', 'my-id', { skipIssueAuthorization: true, assigneeLogin: 'verified.login' }
   );
-  assert.deepEqual(searches, ['verified.login']);
+  assert.deepEqual(searches, ['Assignee: verified.login@ Status: !"Done"']);
   assert.equal(result.activeAssigned, 2);
   assert.deepEqual(result.topTasks.map((task) => task.key), ['IT-1', 'IT-3']);
 });

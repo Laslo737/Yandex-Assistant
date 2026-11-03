@@ -61,8 +61,7 @@ function formatQueueHighlightLine(queue, terminalStatusNames) {
         `• ${queue.key}: ${softenStatusLabel(queue.healthLabel)}`,
         (0, tracker_query_links_1.formatMetricLink)(`активных ${queue.active}`, (0, tracker_query_links_1.buildTeamActiveIssuesUrl)(queueKeys, terminalStatusNames)),
         (0, tracker_query_links_1.formatMetricLink)(`просрочено ${queue.overdue}`, (0, tracker_query_links_1.buildTeamOverdueIssuesUrl)(queueKeys, terminalStatusNames)),
-        (0, tracker_query_links_1.formatMetricLink)(`без движения ${queue.stale}`, (0, tracker_query_links_1.buildTeamStaleIssuesUrl)(queueKeys, terminalStatusNames)),
-        (0, tracker_query_links_1.formatMetricLink)('все задачи', (0, tracker_query_links_1.buildTeamAllIssuesUrl)(queueKeys))
+        (0, tracker_query_links_1.formatMetricLink)(`без движения ${queue.stale}`, (0, tracker_query_links_1.buildTeamStaleIssuesUrl)(queueKeys, terminalStatusNames))
     ].join(' — ');
 }
 function formatTaskLines(tasks, includeQueue = true) {

@@ -1,11 +1,9 @@
 import { formatTrackerIssueLabel } from '../../../shared/utils/tracker-links';
 import {
   buildMyActiveIssuesUrl,
-  buildMyAllIssuesUrl,
   buildMyOverdueIssuesUrl,
   buildMyRecentlyUpdatedIssuesUrl,
   buildTeamActiveIssuesUrl,
-  buildTeamAllIssuesUrl,
   buildTeamOverdueIssuesUrl,
   buildTeamStaleIssuesUrl,
   formatMetricLink
@@ -48,7 +46,6 @@ export function formatEmployeeDigest(summary: {
     summary.matchedAssigneeCandidate ? `👤 Профиль: ${summary.matchedAssigneeCandidate}` : null,
     '',
     '📊 На сегодня',
-    linkLogin ? `• ${formatMetricLink(`Всего задач на мне: ${summary.totalAssigned}`, buildMyAllIssuesUrl(linkLogin))}` : `• Всего задач на мне: ${summary.totalAssigned}`,
     linkLogin && summary.terminalStatusNames ? `• ${formatMetricLink(`Активных: ${summary.activeAssigned}`, buildMyActiveIssuesUrl(linkLogin, summary.terminalStatusNames))}` : `• Активных: ${summary.activeAssigned}`,
     linkLogin && summary.terminalStatusNames ? `• ${formatMetricLink(`Просрочено: ${summary.overdueCount}`, buildMyOverdueIssuesUrl(linkLogin, summary.terminalStatusNames))}` : `• Просрочено: ${summary.overdueCount}`,
     linkLogin && summary.terminalStatusNames ? `• ${formatMetricLink(`Обновлялись за 24ч: ${summary.recentlyUpdatedCount}`, buildMyRecentlyUpdatedIssuesUrl(linkLogin, summary.terminalStatusNames))}` : `• Обновлялись за 24ч: ${summary.recentlyUpdatedCount}`,
@@ -104,7 +101,6 @@ export function formatManagerDigest(summary: {
     `📚 Очереди: ${queueLine}`,
     '',
     '📊 По команде',
-    `• ${formatMetricLink(`Всего задач: ${summary.totalIssues}`, buildTeamAllIssuesUrl(queueKeys))}`,
     `• ${formatMetricLink(`Активных: ${summary.activeIssues}`, buildTeamActiveIssuesUrl(queueKeys, summary.terminalStatusNames))}`,
     `• ${formatMetricLink(`Просрочено: ${summary.overdueCount}`, buildTeamOverdueIssuesUrl(queueKeys, summary.terminalStatusNames))}`,
     `• ${formatMetricLink(`Без движения > 7д: ${summary.staleCount}`, buildTeamStaleIssuesUrl(queueKeys, summary.terminalStatusNames))}`,

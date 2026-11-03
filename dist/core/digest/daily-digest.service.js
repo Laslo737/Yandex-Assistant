@@ -4,6 +4,7 @@ exports.DailyDigestService = void 0;
 exports.selectDailyFocus = selectDailyFocus;
 exports.formatDailyDigest = formatDailyDigest;
 const workday_service_1 = require("../workday/application/workday.service");
+const active_issues_1 = require("../../integrations/yandex-tracker/active-issues");
 const digest_calendar_1 = require("./digest-calendar");
 const tracker_links_1 = require("../../shared/utils/tracker-links");
 const tracker_query_links_1 = require("../../shared/utils/tracker-query-links");
@@ -57,26 +58,23 @@ class DailyDigestService {
         const identity = await this.authorization.resolveIdentity(login);
         if (!identity || identity.id !== expectedTrackerId)
             throw new Error('DIGEST_IDENTITY_NOT_CONFIRMED');
-        const [statuses, assigned] = await Promise.all([
-            this.workday.getStatuses(),
-            (0, workday_service_1.fetchAllIssuesByAssignee)(this.tracker, identity.trackerLogin, ['summary', 'status', 'statusType', 'assignee', 'priority', 'deadline', 'queue',
-                'createdBy', 'followers', 'access', 'components'])
-        ]);
+        const statuses = await this.workday.getStatuses();
         if (!Array.isArray(statuses) || !statuses.length)
             throw new Error('DIGEST_STATUSES_UNAVAILABLE');
-        const own = assigned.filter((issue) => issue.assignee?.id === identity.id);
-        // Unlike the explicitly simplified interactive My day, scheduled reports never bypass ACL.
-        const readable = await this.authorization.filterReadableSearchIssues(identity.id, own, true);
         const terminal = statuses.filter((status) => status.type === 'done' || status.type === 'cancelled');
+        const terminalStatusNames = terminal.map((status) => status.name || status.key || String(status.id));
         const ids = new Set(terminal.map((status) => String(status.id)));
         const keys = new Set(terminal.map((status) => status.key).filter((key) => Boolean(key)));
-        const active = readable.filter((issue) => !(0, workday_service_1.isDone)(issue, ids, keys));
+        const assigned = await (0, active_issues_1.fetchActiveIssuesByAssignee)(this.tracker, identity.trackerLogin, terminalStatusNames, ['summary', 'status', 'statusType', 'assignee', 'priority', 'deadline', 'queue', ...active_issues_1.ISSUE_AUTH_FIELDS]);
+        const own = assigned.filter((issue) => issue.assignee?.id === identity.id && !(0, workday_service_1.isDone)(issue, ids, keys));
+        // Unlike the explicitly simplified interactive My day, scheduled reports never bypass ACL.
+        const active = await this.authorization.filterReadableSearchIssues(identity.id, own, true);
         const tasks = active.map((issue) => ({ key: issue.key, summary: issue.summary,
             deadline: (0, digest_calendar_1.dateOnly)(issue.deadline), priority: issue.priority?.display, priorityKey: issue.priority?.key }));
-        return formatDailyDigest({ date, login: identity.trackerLogin, total: readable.length,
+        return formatDailyDigest({ date, login: identity.trackerLogin,
             today: tasks.filter((task) => task.deadline === date).length,
             overdue: tasks.filter((task) => task.deadline && task.deadline < date).length,
-            active: active.length, terminalStatuses: terminal.map((status) => status.name || status.key || String(status.id)),
+            active: active.length, terminalStatuses: terminalStatusNames,
             focus: selectDailyFocus(tasks, date) });
     }
 }
@@ -89,7 +87,7 @@ function formatDailyDigest(data) {
     const displayDate = data.date.split('-').reverse().join('.');
     const lines = [
         `☀️ **Ваш день · ${displayDate}**`, '',
-        `📋 ${(0, tracker_query_links_1.formatMetricLink)(`Всего задач на мне: ${data.total}`, (0, tracker_query_links_1.buildMyAllIssuesUrl)(data.login))}`,
+        `📋 ${(0, tracker_query_links_1.formatMetricLink)(`Активных задач на мне: ${data.active}`, (0, tracker_query_links_1.buildMyActiveIssuesUrl)(data.login, data.terminalStatuses))}`,
         `📅 ${(0, tracker_query_links_1.formatMetricLink)(`С дедлайном сегодня: ${data.today}`, (0, tracker_query_links_1.buildMyDueTodayIssuesUrl)(data.login, data.terminalStatuses, data.date))}`,
         `⏰ ${(0, tracker_query_links_1.formatMetricLink)(`Просроченные: ${data.overdue}`, (0, tracker_query_links_1.buildMyOverdueIssuesUrl)(data.login, data.terminalStatuses, data.date))}`,
         '', '**Обратить внимание**', ''

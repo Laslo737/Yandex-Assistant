@@ -1,4 +1,5 @@
 import { TrackerApiClient } from '../../../integrations/yandex-tracker/tracker.client';
+import { fetchActiveIssuesByQueue, ISSUE_AUTH_FIELDS } from '../../../integrations/yandex-tracker/active-issues';
 import { IssueAuthorizationService } from '../../authorization/application/issue-authorization.service';
 import { TrackerIssue } from '../../../integrations/yandex-tracker/tracker.types';
 import { ManagerSummaryService } from '../../manager/application/manager-summary.service';
@@ -163,54 +164,6 @@ function mapTask(issue: TrackerIssue, doneStatusIds: Set<string>, doneStatusKeys
     daysWithoutUpdate: diffDaysFromNow(issue.updatedAt),
     daysInProgress: getDaysInProgress(issue)
   };
-}
-
-function parseNextIdFromLinkHeader(linkHeader?: string): string | undefined {
-  if (!linkHeader) return undefined;
-
-  const nextMatch = linkHeader.match(/<([^>]+)>;\s*rel="next"/i);
-  if (!nextMatch?.[1]) return undefined;
-
-  try {
-    const url = new URL(nextMatch[1]);
-    return url.searchParams.get('id') || undefined;
-  } catch {
-    return undefined;
-  }
-}
-
-async function fetchAllIssuesByQueue(
-  trackerClient: TrackerApiClient,
-  queueKey: string,
-  fields: string[]
-): Promise<TrackerIssue[]> {
-  const perPage = 100;
-  const issuesById = new Map<string, TrackerIssue>();
-  let cursorId: string | number | undefined;
-
-  while (true) {
-    const result = await trackerClient.searchIssues(
-      {
-        queue: queueKey,
-        order: '-updatedAt'
-      },
-      {
-        fields,
-        perPage,
-        id: cursorId
-      }
-    );
-
-    for (const issue of result.issues) {
-      issuesById.set(issue.id, issue);
-    }
-
-    const nextId = parseNextIdFromLinkHeader(result.pagination.nextLink);
-    if (!nextId || String(nextId) === String(cursorId)) break;
-    cursorId = nextId;
-  }
-
-  return Array.from(issuesById.values());
 }
 
 function isLegacyTask(task: ProcessAnalysisTaskItem): boolean {
@@ -417,7 +370,8 @@ export class ProcessAnalysisService {
       'createdAt',
       'deadline',
       'queue',
-      'statusStartTime'
+      'statusStartTime',
+      ...ISSUE_AUTH_FIELDS
     ];
 
     const doneStatusNames = managerContext.terminalStatusNames;
@@ -427,8 +381,8 @@ export class ProcessAnalysisService {
     const issuesByQueue = await Promise.all(
       queueKeys.map(async (queueKey) => ({
         queueKey,
-        issues: await this.deps.authorization.filterReadableIssues(
-          userId, await fetchAllIssuesByQueue(this.deps.trackerClient, queueKey, fields)
+        issues: await this.deps.authorization.filterReadableSearchIssues(
+          userId, await fetchActiveIssuesByQueue(this.deps.trackerClient, queueKey, doneStatusNames, fields)
         )
       }))
     );

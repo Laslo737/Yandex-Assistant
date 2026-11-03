@@ -55,8 +55,9 @@ test('daily build: verified assignee, ACL before all counts, closed/cancelled ex
   const searches: string[] = [];
   const tracker = { getStatuses: async () => [{ id: 'done', name: 'Закрыт', type: 'done' },
     { id: 'cancelled', name: 'Отменён', type: 'cancelled' }],
-    searchIssues: async (payload: { filter: { assignee: string } }) => {
-      searches.push(payload.filter.assignee); return { issues, pagination: { totalPages: 1 } };
+    searchIssues: async (payload: { query: string; filter?: unknown }) => {
+      assert.equal(payload.filter, undefined);
+      searches.push(payload.query); return { issues, pagination: { totalPages: 1 } };
     } } as unknown as TrackerApiClient;
   let strict = false;
   const authorization = {
@@ -68,15 +69,15 @@ test('daily build: verified assignee, ACL before all counts, closed/cancelled ex
   } as unknown as IssueAuthorizationService;
   const service = new DailyDigestService(tracker, authorization, new WorkdayService(tracker, authorization));
   const message = await service.build('messenger@example.test', 'my-id', date);
-  assert.deepEqual(searches, ['verified.login']); assert.equal(strict, true);
-  assert.match(message.text, /Всего задач на мне: 4/);
+  assert.deepEqual(searches, ['Assignee: verified.login@ Status: !"Закрыт" Status: !"Отменён"']); assert.equal(strict, true);
+  assert.match(message.text, /Активных задач на мне: 2/);
   assert.match(message.text, /С дедлайном сегодня: 1/);
   assert.match(message.text, /Просроченные: 1/);
   assert.doesNotMatch(message.text, /IT-4|IT-5|IT-3|IT-6/);
   const urls = [...message.text.matchAll(/\]\((https:\/\/assistant\.example\.test\/r\/[^)]+)\)/g)]
     .map((match) => shortLinkStore.resolve(new URL(match[1]).pathname.split('/').pop()!)!);
   const queries = urls.map((url) => new URL(url).searchParams.get('_q'));
-  assert.equal(queries[0], 'Assignee: verified.login@');
+  assert.equal(queries[0], 'Assignee: verified.login@ Status: !"Закрыт" Status: !"Отменён"');
   assert.match(queries[1]!, /Status: !"Закрыт".*Status: !"Отменён".*Deadline: 2026-11-03/);
   assert.match(queries[2]!, /Deadline: < 2026-11-03/);
   await assert.rejects(service.build('messenger@example.test', 'different-id', date), /IDENTITY_NOT_CONFIRMED/);
@@ -84,7 +85,7 @@ test('daily build: verified assignee, ACL before all counts, closed/cancelled ex
   await assert.rejects(service.build('messenger@example.test', 'my-id', date), /ACL unavailable/);
 });
 
-test('728 assigned tasks: paginated metadata supplies ACL fields and counts closed tasks without 728 extra GETs', async () => {
+test('728 historical tasks: query loads only two active tasks, without archive pages or per-issue GETs', async () => {
   let searches = 0; let gets = 0; let permissions = 0;
   const issues = Array.from({ length: 728 }, (_, index) => ({ id: String(index), key: `IT-${index + 1}`,
     summary: 'Task', assignee: { id: '123' }, createdBy: { id: '123' }, followers: [], access: [], components: [],
@@ -94,28 +95,31 @@ test('728 assigned tasks: paginated metadata supplies ACL fields and counts clos
   const tracker = {
     getUser: async () => ({ id: '123', login: 'test.user' }),
     getStatuses: async () => [{ id: 'done', key: 'closed', name: 'Закрыт', type: 'done' }],
-    searchIssues: async (_payload: unknown, options: { fields: string[]; page: number; perPage: number }) => {
+    searchIssues: async (payload: { query: string; filter?: unknown; queue?: unknown }, options: { fields: string[]; page: number; perPage: number }) => {
       searches++;
+      assert.equal(payload.filter, undefined); assert.equal(payload.queue, undefined);
+      assert.equal(payload.query, 'Assignee: test.user@ Status: !"Закрыт"');
       for (const field of ['createdBy', 'followers', 'access', 'components']) assert.ok(options.fields.includes(field));
-      return { issues: issues.slice((options.page - 1) * 100, options.page * 100), pagination: { totalPages: 8 } };
+      return { issues: issues.filter((issue) => issue.statusType.id !== 'done'), pagination: { totalPages: 1 } };
     },
     getIssueAuthFields: async () => { gets++; throw new Error('N+1 regression'); },
     getQueueUserPermissions: async () => { permissions++; return { user: { id: '123' }, permissions: { READ: { users: [{ id: '123' }] } } }; }
   } as unknown as TrackerApiClient;
   const authorization = new IssueAuthorizationService(tracker);
   const result = await new DailyDigestService(tracker, authorization, new WorkdayService(tracker, authorization)).build('test.user', '123', date);
-  assert.match(result.text, /Всего задач на мне: 728/);
+  assert.match(result.text, /Активных задач на мне: 2/);
+  assert.doesNotMatch(result.text, /Всего задач/);
   assert.match(result.text, /С дедлайном сегодня: 2/);
-  assert.deepEqual({ searches, gets, permissions }, { searches: 8, gets: 0, permissions: 1 });
+  assert.deepEqual({ searches, gets, permissions }, { searches: 1, gets: 0, permissions: 1 });
 });
 
 test('daily report always has three metric links, short empty state and bounded escaped task titles', () => {
-  const base = { date, login: 'test.user', total: 0, today: 0, overdue: 0, active: 0, terminalStatuses: ['Закрыт'], focus: [] };
+  const base = { date, login: 'test.user', today: 0, overdue: 0, active: 0, terminalStatuses: ['Закрыт'], focus: [] };
   const empty = formatDailyDigest(base);
   assert.match(empty.text, /Активных задач нет/);
   assert.equal((empty.text.match(/\/r\//g) || []).length, 3);
   assert.ok(empty.text.length < 1000);
-  assert.match(formatDailyDigest({ ...base, active: 2, total: 2 }).text, /Ближайших дедлайнов/);
+  assert.match(formatDailyDigest({ ...base, active: 2 }).text, /Ближайших дедлайнов/);
   const task = { key: 'IT-1', summary: '[fake](https://evil.test)\n**bad**' + 'x'.repeat(300) };
   const message = formatDailyDigest({ ...base, focus: [{ task, reason: 'Срок сегодня.' }] });
   assert.doesNotMatch(message.text, /\[fake\]|\*\*bad\*\*/);

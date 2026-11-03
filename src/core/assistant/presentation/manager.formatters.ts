@@ -1,7 +1,6 @@
 import { formatTrackerIssueLabel } from '../../../shared/utils/tracker-links';
 import {
   buildTeamActiveIssuesUrl,
-  buildTeamAllIssuesUrl,
   buildTeamOverdueIssuesUrl,
   buildTeamStaleIssuesUrl,
   formatMetricLink
@@ -63,20 +62,6 @@ function formatTaskFlags(flagsSource: {
   return flags.length ? ` (${flags.join(', ')})` : '';
 }
 
-function formatCompactMetrics(metrics: {
-  total: number;
-  active: number;
-  overdue: number;
-  stale: number;
-}): string[] {
-  return [
-    `• Всего задач: ${metrics.total}`,
-    `• Активных: ${metrics.active}`,
-    `• Просрочено: ${metrics.overdue}`,
-    `• Без движения > 7д: ${metrics.stale}`
-  ];
-}
-
 function formatLinkedQueueMetrics(
   queueKey: string,
   metrics: {
@@ -90,7 +75,6 @@ function formatLinkedQueueMetrics(
   const queueKeys = [queueKey];
 
   return [
-    `• ${formatMetricLink(`Всего задач: ${metrics.total}`, buildTeamAllIssuesUrl(queueKeys))}`,
     `• ${formatMetricLink(`Активных: ${metrics.active}`, buildTeamActiveIssuesUrl(queueKeys, terminalStatusNames))}`,
     `• ${formatMetricLink(`Просрочено: ${metrics.overdue}`, buildTeamOverdueIssuesUrl(queueKeys, terminalStatusNames))}`,
     `• ${formatMetricLink(`Без движения > 7д: ${metrics.stale}`, buildTeamStaleIssuesUrl(queueKeys, terminalStatusNames))}`
@@ -112,7 +96,6 @@ function formatSingleQueueView(summary: ManagerFormatterSummary): string {
     queue ? `📁 Очередь: ${queueLabel}` : null,
     '',
     '📊 Сейчас',
-    `• ${formatMetricLink(`Всего задач: ${summary.totalIssues}`, buildTeamAllIssuesUrl(queueKeys))}`,
     `• ${formatMetricLink(`Активных: ${summary.activeIssues}`, buildTeamActiveIssuesUrl(queueKeys, summary.terminalStatusNames))}`,
     `• ${formatMetricLink(`Просрочено: ${summary.overdueCount}`, buildTeamOverdueIssuesUrl(queueKeys, summary.terminalStatusNames))}`,
     `• ${formatMetricLink(`Без движения > 7д: ${summary.staleCount}`, buildTeamStaleIssuesUrl(queueKeys, summary.terminalStatusNames))}`,
@@ -157,7 +140,6 @@ function formatMultiQueueView(summary: ManagerFormatterSummary): string {
     `📚 Очереди: ${queueLine}`,
     '',
     '📊 Общая сводка',
-    `• ${formatMetricLink(`Всего задач: ${summary.totalIssues}`, buildTeamAllIssuesUrl(queueKeys))}`,
     `• ${formatMetricLink(`Активных: ${summary.activeIssues}`, buildTeamActiveIssuesUrl(queueKeys, summary.terminalStatusNames))}`,
     `• ${formatMetricLink(`Просрочено: ${summary.overdueCount}`, buildTeamOverdueIssuesUrl(queueKeys, summary.terminalStatusNames))}`,
     `• ${formatMetricLink(`Без движения > 7д: ${summary.staleCount}`, buildTeamStaleIssuesUrl(queueKeys, summary.terminalStatusNames))}`,

@@ -118,13 +118,14 @@ test('My day offers only three focus analyses, each on a full-width row', async 
   assert.deepEqual(message.buttons, [...analysisRows, [{ text: '📋 Меню' }]]);
 });
 
-test('empty My day shows assigned count instead of internal login diagnostics', async () => {
+test('empty My day shows no archive count or internal login diagnostics', async () => {
   const { service, messages } = setup({ login: 'some.user@example.com',
     assigneeCandidates: ['some.user@example.com', 'some.user'],
     matchedAssigneeCandidate: 'some.user', terminalStatusNames: [], totalAssigned: 4,
     activeAssigned: 0, overdueCount: 0, recentlyUpdatedCount: 0, topTasks: [] });
   await service.handleEvent(event('Мой день'));
-  assert.match(messages[0].text, /Всего назначенных задач: 4/);
+  assert.match(messages[0].text, /Активных: 0/);
+  assert.doesNotMatch(messages[0].text, /Всего назначенных задач|Всего задач/);
   assert.doesNotMatch(messages[0].text, /Диагностика|candidates=|some\.user@example\.com/);
   assert.deepEqual(messages[0].buttons, [[{ text: '📋 Меню' }]]);
 });

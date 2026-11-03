@@ -20,18 +20,9 @@ function formatTaskFlags(flagsSource) {
     ].filter(Boolean);
     return flags.length ? ` (${flags.join(', ')})` : '';
 }
-function formatCompactMetrics(metrics) {
-    return [
-        `• Всего задач: ${metrics.total}`,
-        `• Активных: ${metrics.active}`,
-        `• Просрочено: ${metrics.overdue}`,
-        `• Без движения > 7д: ${metrics.stale}`
-    ];
-}
 function formatLinkedQueueMetrics(queueKey, metrics, terminalStatusNames) {
     const queueKeys = [queueKey];
     return [
-        `• ${(0, tracker_query_links_1.formatMetricLink)(`Всего задач: ${metrics.total}`, (0, tracker_query_links_1.buildTeamAllIssuesUrl)(queueKeys))}`,
         `• ${(0, tracker_query_links_1.formatMetricLink)(`Активных: ${metrics.active}`, (0, tracker_query_links_1.buildTeamActiveIssuesUrl)(queueKeys, terminalStatusNames))}`,
         `• ${(0, tracker_query_links_1.formatMetricLink)(`Просрочено: ${metrics.overdue}`, (0, tracker_query_links_1.buildTeamOverdueIssuesUrl)(queueKeys, terminalStatusNames))}`,
         `• ${(0, tracker_query_links_1.formatMetricLink)(`Без движения > 7д: ${metrics.stale}`, (0, tracker_query_links_1.buildTeamStaleIssuesUrl)(queueKeys, terminalStatusNames))}`
@@ -49,7 +40,6 @@ function formatSingleQueueView(summary) {
         queue ? `📁 Очередь: ${queueLabel}` : null,
         '',
         '📊 Сейчас',
-        `• ${(0, tracker_query_links_1.formatMetricLink)(`Всего задач: ${summary.totalIssues}`, (0, tracker_query_links_1.buildTeamAllIssuesUrl)(queueKeys))}`,
         `• ${(0, tracker_query_links_1.formatMetricLink)(`Активных: ${summary.activeIssues}`, (0, tracker_query_links_1.buildTeamActiveIssuesUrl)(queueKeys, summary.terminalStatusNames))}`,
         `• ${(0, tracker_query_links_1.formatMetricLink)(`Просрочено: ${summary.overdueCount}`, (0, tracker_query_links_1.buildTeamOverdueIssuesUrl)(queueKeys, summary.terminalStatusNames))}`,
         `• ${(0, tracker_query_links_1.formatMetricLink)(`Без движения > 7д: ${summary.staleCount}`, (0, tracker_query_links_1.buildTeamStaleIssuesUrl)(queueKeys, summary.terminalStatusNames))}`,
@@ -85,7 +75,6 @@ function formatMultiQueueView(summary) {
         `📚 Очереди: ${queueLine}`,
         '',
         '📊 Общая сводка',
-        `• ${(0, tracker_query_links_1.formatMetricLink)(`Всего задач: ${summary.totalIssues}`, (0, tracker_query_links_1.buildTeamAllIssuesUrl)(queueKeys))}`,
         `• ${(0, tracker_query_links_1.formatMetricLink)(`Активных: ${summary.activeIssues}`, (0, tracker_query_links_1.buildTeamActiveIssuesUrl)(queueKeys, summary.terminalStatusNames))}`,
         `• ${(0, tracker_query_links_1.formatMetricLink)(`Просрочено: ${summary.overdueCount}`, (0, tracker_query_links_1.buildTeamOverdueIssuesUrl)(queueKeys, summary.terminalStatusNames))}`,
         `• ${(0, tracker_query_links_1.formatMetricLink)(`Без движения > 7д: ${summary.staleCount}`, (0, tracker_query_links_1.buildTeamStaleIssuesUrl)(queueKeys, summary.terminalStatusNames))}`,
