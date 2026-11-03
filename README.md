@@ -1,5 +1,9 @@
 # Yandex 360 AI Assistant Platform
 
+Текущее production-состояние и контекст продолжения: [docs/current-state.md](docs/current-state.md)
+и актуальная сводка в [todo.md](todo.md). Старые шаги выкладки в документации — история,
+не повод повторять миграции/установку/рестарт.
+
 Платформенный каркас для будущего AI Assistant внутри экосистемы Yandex 360.
 
 ## Идея
